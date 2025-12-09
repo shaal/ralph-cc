@@ -1,0 +1,402 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global styles and custom animations */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-background text-gray-100 font-sans;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-surface;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border-300;
+  }
+
+  ::-webkit-scrollbar-corner {
+    @apply bg-surface;
+  }
+}
+
+@layer components {
+  /* Glassmorphism effect */
+  .glass {
+    @apply backdrop-blur-xl border border-border;
+    background-color: rgba(18, 18, 26, 0.8);
+  }
+
+  .glass-hover {
+    @apply glass transition-all duration-200;
+  }
+
+  .glass-hover:hover {
+    background-color: rgba(18, 18, 26, 0.9);
+    @apply border-border-300;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary via-secondary to-primary bg-clip-text text-transparent;
+  }
+
+  /* Shimmer effect for loading states */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  /* Glow effect */
+  .glow {
+    box-shadow:
+      0 0 20px rgba(59, 130, 246, 0.3),
+      0 0 40px rgba(59, 130, 246, 0.1);
+  }
+
+  .glow-secondary {
+    box-shadow:
+      0 0 20px rgba(139, 92, 246, 0.3),
+      0 0 40px rgba(139, 92, 246, 0.1);
+  }
+
+  /* Button variants */
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-600 focus:ring-primary;
+  }
+
+  .btn-secondary {
+    @apply btn bg-secondary text-white hover:bg-secondary-600 focus:ring-secondary;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-gray-300 hover:bg-surface hover:text-white;
+  }
+
+  .btn-outline {
+    @apply btn bg-transparent border border-border text-gray-300 hover:border-primary hover:text-primary;
+  }
+
+  /* Card component */
+  .card {
+    @apply glass rounded-xl p-6 shadow-xl;
+  }
+
+  /* Input styles */
+  .input {
+    @apply w-full px-4 py-2 bg-surface border border-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply badge border;
+    background-color: rgba(59, 130, 246, 0.2);
+    color: #3B82F6;
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .badge-success {
+    @apply badge border;
+    background-color: rgba(16, 185, 129, 0.2);
+    color: #10B981;
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+
+  .badge-warning {
+    @apply badge border;
+    background-color: rgba(245, 158, 11, 0.2);
+    color: #F59E0B;
+    border-color: rgba(245, 158, 11, 0.3);
+  }
+
+  .badge-error {
+    @apply badge border;
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #EF4444;
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+}
+
+@layer utilities {
+  /* Text utilities */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Smooth gradient backgrounds */
+  .bg-mesh {
+    background-image:
+      radial-gradient(at 40% 20%, rgba(59, 130, 246, 0.1) 0px, transparent 50%),
+      radial-gradient(at 80% 0%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
+      radial-gradient(at 0% 50%, rgba(59, 130, 246, 0.05) 0px, transparent 50%),
+      radial-gradient(at 80% 50%, rgba(139, 92, 246, 0.05) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, rgba(59, 130, 246, 0.1) 0px, transparent 50%),
+      radial-gradient(at 80% 100%, rgba(139, 92, 246, 0.1) 0px, transparent 50%);
+  }
+}
+
+/* Animation delays */
+.animate-delay-100 {
+  animation-delay: 100ms;
+}
+
+.animate-delay-200 {
+  animation-delay: 200ms;
+}
+
+.animate-delay-300 {
+  animation-delay: 300ms;
+}
+
+.animate-delay-500 {
+  animation-delay: 500ms;
+}
+
+/* Custom focus styles for accessibility */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2;
+}
+
+/* Typography enhancements */
+h1, h2, h3, h4, h5, h6 {
+  @apply font-semibold tracking-tight;
+}
+
+code {
+  @apply font-mono text-sm bg-surface px-1.5 py-0.5 rounded border border-border;
+}
+
+pre {
+  @apply font-mono text-sm bg-surface p-4 rounded-lg border border-border overflow-x-auto;
+}
+
+/* Selection styles */
+::selection {
+  background-color: rgba(59, 130, 246, 0.3);
+  @apply text-white;
+}
+
+::-moz-selection {
+  background-color: rgba(59, 130, 246, 0.3);
+  @apply text-white;
+}
+
+/* ========================================
+   React Flow Custom Styles
+   ======================================== */
+
+/* Main React Flow container */
+.constellation-graph {
+  @apply w-full h-full;
+}
+
+/* Override default React Flow node styles */
+.react-flow__node {
+  @apply cursor-pointer;
+}
+
+.react-flow__node-agent {
+  @apply bg-transparent border-0 p-0 shadow-none;
+}
+
+.react-flow__node-tool {
+  @apply bg-transparent border-0 p-0 shadow-none;
+}
+
+/* Edge path styling */
+.react-flow__edge-path {
+  stroke: #3B82F6;
+  stroke-width: 2;
+  transition: stroke 0.2s ease;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #60A5FA;
+  stroke-width: 3;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #60A5FA;
+}
+
+/* Handle (connection point) styling */
+.react-flow__handle {
+  @apply transition-all duration-200;
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+
+.react-flow__handle-connecting {
+  @apply bg-blue-400 scale-125;
+}
+
+.react-flow__handle-valid {
+  @apply bg-green-400;
+}
+
+/* Control buttons */
+.react-flow__controls {
+  @apply backdrop-blur-sm border rounded-xl shadow-2xl;
+  background-color: rgba(18, 18, 26, 0.95);
+  border-color: #1E1E2E;
+}
+
+.react-flow__controls-button {
+  @apply bg-transparent;
+  border-bottom: 1px solid #1E1E2E;
+  color: #9CA3AF;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #1A1A24;
+  color: #F9FAFB;
+}
+
+.react-flow__controls-button svg {
+  @apply fill-current;
+}
+
+/* MiniMap styling */
+.react-flow__minimap {
+  @apply shadow-2xl;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(10, 10, 15, 0.85);
+}
+
+.react-flow__minimap-node {
+  @apply transition-all duration-200;
+}
+
+/* Background pattern */
+.react-flow__background {
+  @apply opacity-50;
+}
+
+/* Selection box */
+.react-flow__selection {
+  background-color: rgba(59, 130, 246, 0.2);
+  border: 2px solid rgba(59, 130, 246, 0.5);
+}
+
+/* Pane (clickable background) */
+.react-flow__pane {
+  @apply cursor-grab;
+}
+
+.react-flow__pane.dragging {
+  @apply cursor-grabbing;
+}
+
+/* Attribution (hide if desired) */
+.react-flow__attribution {
+  @apply opacity-30 text-xs;
+}
+
+/* Panel styling */
+.react-flow__panel {
+  @apply m-4;
+}
+
+/* Edge label background */
+.react-flow__edge-text {
+  fill: #F9FAFB;
+}
+
+/* Connection line (when dragging new connection) */
+.react-flow__connectionline {
+  stroke: #3B82F6;
+  stroke-width: 2;
+}
+
+/* Custom animations for React Flow */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* Dark theme enhancements for React Flow */
+.react-flow__node.selected {
+  @apply outline-none;
+}
+
+.react-flow__edge.selected {
+  z-index: 1000;
+}
+
+/* Ensure proper layering */
+.react-flow__edges {
+  z-index: 1;
+}
+
+.react-flow__nodes {
+  z-index: 2;
+}
+
+/* Custom node hover effects */
+.react-flow__node:hover {
+  z-index: 3;
+}
+
+.react-flow__node.selected {
+  z-index: 4;
+}
