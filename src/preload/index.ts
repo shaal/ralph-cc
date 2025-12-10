@@ -31,7 +31,8 @@ const api = {
   agent: {
     get: (id: string) => ipcRenderer.invoke('agent:get', id),
     list: (projectId: string) => ipcRenderer.invoke('agent:list', projectId),
-    history: (id: string, options?: unknown) => ipcRenderer.invoke('agent:history', id, options),
+    getHistory: (id: string, options?: unknown) => ipcRenderer.invoke('agent:history', id, options),
+    getOutputs: (id: string) => ipcRenderer.invoke('agent:outputs', id),
     pause: (id: string) => ipcRenderer.invoke('agent:pause', id),
     resume: (id: string) => ipcRenderer.invoke('agent:resume', id),
     stop: (id: string) => ipcRenderer.invoke('agent:stop', id),

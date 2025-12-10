@@ -69,6 +69,10 @@ export class EventBus {
     'api_key_required',
     'proxy_auth_required',
     'iteration_error',
+    // Streaming events must be real-time for responsive UI
+    'agent_output_chunk',
+    'agent_tool_call',
+    'tool_executed',
   ]);
 
   constructor(throttleConfig: ThrottleConfig = { enabled: true, intervalMs: 16 }) {

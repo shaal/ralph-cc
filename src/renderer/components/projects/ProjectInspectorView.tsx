@@ -47,14 +47,22 @@ export const ProjectInspectorView: React.FC<ProjectInspectorViewProps> = ({
 
   // Subscribe to agent creation events
   useEffect(() => {
-    const unsubscribe = window.api.onEvent('agent_created', (event) => {
+    console.log(`[ProjectInspectorView] Subscribing to agent_created for project: ${projectId}`);
+    const unsubscribe = window.api.onEvent('agent_created', (event: any) => {
+      console.log(`[ProjectInspectorView] Received agent_created event:`, event);
+      console.log(`[ProjectInspectorView] Comparing projectIds: event.data.projectId="${event.data?.projectId}" vs our projectId="${projectId}"`);
       // Note: projectId and agentId are inside event.data (from IPC forwarding)
       if (event.data?.projectId === projectId) {
+        console.log(`[ProjectInspectorView] ✓ Project match! Fetching agents and selecting new agent: ${event.data?.agentId}`);
         fetchAgents(projectId);
         // Auto-select the new agent
-        if (event.data?.id || event.data?.agentId) {
-          setSelectedAgentId(event.data?.id || event.data?.agentId);
+        const newAgentId = event.data?.id || event.data?.agentId;
+        if (newAgentId) {
+          console.log(`[ProjectInspectorView] Setting selectedAgentId to: ${newAgentId}`);
+          setSelectedAgentId(newAgentId);
         }
+      } else {
+        console.log(`[ProjectInspectorView] ✗ Project mismatch - ignoring`);
       }
     });
 
@@ -170,9 +178,9 @@ export const ProjectInspectorView: React.FC<ProjectInspectorViewProps> = ({
             onChange={(e) => setSelectedAgentId(e.target.value)}
             className="flex-1 max-w-xs bg-gray-800 text-white text-sm rounded px-3 py-1.5 border border-gray-700 focus:outline-none focus:border-blue-500"
           >
-            {agents.map((a) => (
+            {agents.filter(a => a && a.id).map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name || `Agent ${a.id.slice(0, 8)}`} ({a.status})
+                {a.name || `Agent ${a.id.slice(0, 8)}`} ({a.status || 'unknown'})
               </option>
             ))}
           </select>
@@ -194,7 +202,7 @@ export const ProjectInspectorView: React.FC<ProjectInspectorViewProps> = ({
               'bg-gray-500'
             }`} />
             <span className="text-white text-sm font-medium">
-              {agent.name || `Agent ${agent.id.slice(0, 8)}`}
+              {agent.name || `Agent ${agent.id?.slice(0, 8) || 'Unknown'}`}
             </span>
             <span className={`text-xs px-2 py-0.5 rounded ${
               agent.status === 'running' ? 'bg-green-900/50 text-green-400' :

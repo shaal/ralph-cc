@@ -282,7 +282,9 @@ export class RalphLoop {
             this.emit('agent_tool_call', {
               agentId: this.agent.id,
               projectId: this.project.id,
-              toolCall,
+              tool_name: toolCall.name,
+              tool_id: toolCall.id,
+              input: toolCall.input,
             });
           },
         }

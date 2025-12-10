@@ -82,6 +82,13 @@ function setupEventForwarding(): void {
   // Subscribe to all events and forward to renderer
   eventBus.subscribeAll((event: Event) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
+      // Debug: log key events being forwarded
+      if (event.type === 'agent_output_chunk') {
+        console.log(`[EventForwarding] Forwarding agent_output_chunk to renderer: agentId=${event.data?.agentId}`);
+      }
+      if (event.type === 'agent_created') {
+        console.log(`[EventForwarding] Forwarding agent_created to renderer: agentId=${event.data?.agentId}, projectId=${event.data?.projectId}`);
+      }
       mainWindow.webContents.send('event', {
         type: event.type,
         data: event.data,
@@ -464,6 +471,14 @@ function registerIpcHandlers(): void {
         },
       });
 
+      // Emit agent_created event so the UI can track the new agent
+      const eventBus = getEventBus();
+      eventBus.emit('agent_created', {
+        agentId: agent.id,
+        projectId: id,
+      });
+      console.log(`[Project] Emitted agent_created event for agent ${agent.id}`);
+
       // Update project status
       projectRepo.updateStatus(id, 'running');
 
@@ -636,6 +651,16 @@ function registerIpcHandlers(): void {
       }
     } catch (error: any) {
       console.error('[Agent] Stop error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('agent:outputs', async (_event, id: string) => {
+    try {
+      const { outputRepository } = await import('./database/repositories');
+      return outputRepository.findByAgentId(id);
+    } catch (error: any) {
+      console.error('[Agent] Get outputs error:', error);
       throw error;
     }
   });

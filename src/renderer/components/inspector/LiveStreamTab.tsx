@@ -14,6 +14,9 @@ export const LiveStreamTab: React.FC<LiveStreamTabProps> = ({ agentId }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Debug: log when chunks change
+  console.log(`[LiveStreamTab] Rendering with ${chunks.length} chunks, isStreaming=${isStreaming}, agentId=${agentId}`);
+
   // Auto-scroll to bottom when new chunks arrive
   useEffect(() => {
     if (autoScroll && bottomRef.current) {
