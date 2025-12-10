@@ -107,6 +107,7 @@ export class RalphLoop {
    * Start the Ralph loop
    */
   async start(): Promise<void> {
+    console.log(`[RalphLoop] Starting loop for agent ${this.agent.id} in project ${this.project.id}`);
     this.status = 'running';
     this.stopRequested = false;
     this.pauseRequested = false;
@@ -119,6 +120,7 @@ export class RalphLoop {
     try {
       await this.runLoop();
     } catch (error) {
+      console.error(`[RalphLoop] Loop error:`, error);
       this.status = 'error';
       this.emit('iteration_error', {
         agentId: this.agent.id,
@@ -226,45 +228,70 @@ export class RalphLoop {
    * Execute a single iteration
    */
   private async executeIteration(): Promise<void> {
+    console.log(`[RalphLoop] Executing iteration ${this.iteration}`);
+
     // Load current prompt
     const prompt = await this.loadPrompt();
+    console.log(`[RalphLoop] Loaded prompt (${prompt.length} chars)`);
+
+    // On first iteration, add the prompt as the initial user message
+    if (this.agent.history.length === 0 && prompt) {
+      this.agent.history.push({
+        role: 'user',
+        content: prompt,
+      });
+      console.log(`[RalphLoop] Added prompt as initial user message`);
+    }
 
     // Get enabled tools
     const tools = this.toolRegistry.getByNames(this.config.enabledTools);
+    console.log(`[RalphLoop] Using ${tools.length} tools: ${this.config.enabledTools.join(', ')}`);
     const claudeTools = tools.map(t => ({
       name: t.name,
       description: t.description,
       input_schema: t.input_schema,
     }));
 
-    // Execute Claude iteration
-    const result = await this.claudeClient.runIteration(
-      this.agent.id,
-      this.config.systemPrompt || '',
-      this.agent.history,
-      claudeTools,
-      {
-        model: this.config.model,
-        maxTokens: this.config.maxTokens,
-        temperature: this.config.temperature,
-      },
-      {
-        onChunk: (chunk: string) => {
-          this.emit('agent_output_chunk', {
-            agentId: this.agent.id,
-            projectId: this.project.id,
-            chunk,
-          });
+    console.log(`[RalphLoop] Calling Claude API with model ${this.config.model}...`);
+    console.log(`[RalphLoop] History has ${this.agent.history.length} messages`);
+
+    let result;
+    try {
+      // Execute Claude iteration
+      result = await this.claudeClient.runIteration(
+        this.agent.id,
+        this.config.systemPrompt || '',
+        this.agent.history,
+        claudeTools,
+        {
+          model: this.config.model,
+          maxTokens: this.config.maxTokens,
+          temperature: this.config.temperature,
         },
-        onToolCall: (toolCall: ToolCall) => {
-          this.emit('agent_tool_call', {
-            agentId: this.agent.id,
-            projectId: this.project.id,
-            toolCall,
-          });
-        },
-      }
-    );
+        {
+          onChunk: (chunk: string) => {
+            console.log(`[RalphLoop] Received chunk: ${chunk.substring(0, 50)}...`);
+            this.emit('agent_output_chunk', {
+              agentId: this.agent.id,
+              projectId: this.project.id,
+              chunk,
+            });
+          },
+          onToolCall: (toolCall: ToolCall) => {
+            console.log(`[RalphLoop] Tool call: ${toolCall.name}`);
+            this.emit('agent_tool_call', {
+              agentId: this.agent.id,
+              projectId: this.project.id,
+              toolCall,
+            });
+          },
+        }
+      );
+      console.log(`[RalphLoop] Claude API returned: type=${result.type}, output=${result.output?.substring(0, 100)}...`);
+    } catch (apiError) {
+      console.error(`[RalphLoop] Claude API error:`, apiError);
+      throw apiError;
+    }
 
     // Record cost
     this.costTracker.recordCost(

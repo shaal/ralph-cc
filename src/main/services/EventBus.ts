@@ -9,6 +9,8 @@ export type EventType =
   | 'project_paused'
   | 'project_stopped'
   | 'project_completed'
+  | 'project_updated'
+  | 'project_status_changed'
   | 'agent_created'
   | 'agent_started'
   | 'agent_paused'
@@ -23,7 +25,8 @@ export type EventType =
   | 'circuit_breaker_triggered'
   | 'budget_exceeded'
   | 'budget_warning'
-  | 'api_key_required';
+  | 'api_key_required'
+  | 'proxy_auth_required';
 
 export interface Event {
   type: EventType;
@@ -60,9 +63,11 @@ export class EventBus {
     'project_paused',
     'project_stopped',
     'project_completed',
+    'project_status_changed',
     'circuit_breaker_triggered',
     'budget_exceeded',
     'api_key_required',
+    'proxy_auth_required',
     'iteration_error',
   ]);
 

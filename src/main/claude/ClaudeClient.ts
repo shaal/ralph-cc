@@ -61,7 +61,7 @@ export class ClaudeClient {
    * When using a proxy (like CLIProxyAPI for Claude subscription):
    * - Set proxy.enabled = true
    * - Set proxy.url to the proxy address (default: http://localhost:8317)
-   * - apiKey can be any dummy value (it will be replaced by the proxy)
+   * - apiKey should be one of the keys from CLIProxyAPI's config.yaml api-keys list
    */
   async initialize(options: InitializeOptions): Promise<void> {
     const { apiKey, proxy } = options;
@@ -70,9 +70,11 @@ export class ClaudeClient {
 
     if (this.proxyEnabled && proxy?.url) {
       // Using proxy mode (e.g., CLIProxyAPI for Claude subscription)
-      // The proxy will replace the API key with OAuth token
+      // The apiKey is the client access key configured in CLIProxyAPI's config.yaml
+      // CLIProxyAPI validates this key, then uses OAuth to talk to Claude
+      const proxyApiKey = apiKey || 'your-api-key-1'; // Default from CLIProxyAPI config
       this.client = new Anthropic({
-        apiKey: apiKey || 'sk-proxy-dummy-key', // Dummy key, proxy replaces it
+        apiKey: proxyApiKey,
         baseURL: proxy.url,
       });
       console.log(`ClaudeClient initialized with proxy: ${proxy.url}`);

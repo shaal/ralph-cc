@@ -64,9 +64,15 @@ const api = {
   // ========================================
   proxy: {
     /**
-     * Check if the proxy is running and healthy
+     * Check if the proxy is running and authenticated
      * @param url - The proxy URL to check (e.g., "http://localhost:8317")
-     * @returns { ok: boolean, error?: string }
+     * @returns ProxyHealthResult with detailed status:
+     *   - ok: boolean - true if proxy is running AND authenticated
+     *   - authenticated: boolean - true if OAuth token is valid
+     *   - running: boolean - true if proxy server is responding
+     *   - models?: string[] - available models (when authenticated)
+     *   - error?: string - human-readable error message
+     *   - errorCode?: 'AUTH_REQUIRED' | 'CONNECTION_REFUSED' | 'TIMEOUT' | 'UNEXPECTED_STATUS' | 'UNKNOWN'
      */
     checkHealth: (url: string) => ipcRenderer.invoke('proxy:checkHealth', url),
   },

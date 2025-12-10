@@ -41,6 +41,7 @@ const DEFAULT_CONFIG: Config = {
   proxy: {
     enabled: false,
     url: 'http://localhost:8317',
+    apiKey: 'your-api-key-1', // Default key from CLIProxyAPI's config.yaml
   },
 };
 

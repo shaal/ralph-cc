@@ -118,6 +118,8 @@ export const useProject = (projectId: string | null): UseProjectResult => {
     try {
       const api = getApi();
       await api.project.start(projectId);
+      // Update local state immediately for responsive UI
+      setProject((prev) => prev ? { ...prev, status: 'running' } : null);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to start project'));
       throw err;
@@ -129,6 +131,8 @@ export const useProject = (projectId: string | null): UseProjectResult => {
     try {
       const api = getApi();
       await api.project.pause(projectId);
+      // Update local state immediately for responsive UI
+      setProject((prev) => prev ? { ...prev, status: 'paused' } : null);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to pause project'));
       throw err;
@@ -140,6 +144,8 @@ export const useProject = (projectId: string | null): UseProjectResult => {
     try {
       const api = getApi();
       await api.project.stop(projectId);
+      // Update local state immediately for responsive UI
+      setProject((prev) => prev ? { ...prev, status: 'stopped' } : null);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to stop project'));
       throw err;

@@ -157,6 +157,17 @@ const ErrorScreen: React.FC<{ error: Error; onRetry: () => void }> = ({ error, o
  * Shown when no API key is configured
  * Supports both API key and proxy (Claude subscription) modes
  */
+// Type for detailed proxy health check response
+interface ProxyHealthResult {
+  ok: boolean;
+  authenticated?: boolean;
+  running?: boolean;
+  models?: string[];
+  error?: string;
+  warning?: string;
+  errorCode?: 'AUTH_REQUIRED' | 'AUTH_UNKNOWN' | 'CONNECTION_REFUSED' | 'TIMEOUT' | 'UNEXPECTED_STATUS' | 'UNKNOWN';
+}
+
 const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const [mode, setMode] = useState<'apikey' | 'proxy'>('apikey');
   const [apiKey, setApiKey] = useState('');
@@ -164,7 +175,9 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [proxyStatus, setProxyStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
+  // Added 'needs_auth' state to distinguish between "running but not authenticated" vs "not running"
+  const [proxyStatus, setProxyStatus] = useState<'unknown' | 'checking' | 'online' | 'needs_auth' | 'offline'>('unknown');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const setApiKeyStore = useConfigStore((state) => state.setApiKey);
   const setProxyEnabled = useConfigStore((state) => state.setProxyEnabled);
   const setProxyUrlStore = useConfigStore((state) => state.setProxyUrl);
@@ -174,13 +187,26 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
     setChecking(true);
     setProxyStatus('checking');
     setError(null);
+    setAvailableModels([]);
 
     try {
       const { getApi } = await import('./stores/api');
-      const result = await getApi().proxy.checkHealth(url);
-      if (result.ok) {
+      const result = await getApi().proxy.checkHealth(url) as ProxyHealthResult;
+
+      if (result.ok && result.authenticated) {
+        // Proxy is running AND verified authenticated
         setProxyStatus('online');
+        setAvailableModels(result.models || []);
+      } else if (result.ok && !result.authenticated) {
+        // Proxy is running but auth couldn't be verified (still allow proceeding)
+        setProxyStatus('online');
+        setError(result.warning || null);
+      } else if (result.running && !result.ok) {
+        // Proxy is running but NOT authenticated (needs cli-proxy-api --claude-login)
+        setProxyStatus('needs_auth');
+        setError(result.error || 'Proxy needs authentication');
       } else {
+        // Proxy is not running
         setProxyStatus('offline');
         setError(result.error || 'Proxy is not responding');
       }
@@ -232,16 +258,25 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
 
     try {
       const { getApi } = await import('./stores/api');
-      const result = await getApi().proxy.checkHealth(proxyUrl.trim());
+      const result = await getApi().proxy.checkHealth(proxyUrl.trim()) as ProxyHealthResult;
 
-      if (!result.ok) {
+      if (!result.running) {
         setProxyStatus('offline');
         setError(result.error || 'Proxy is not running. Please start CLIProxyAPI first.');
         setLoading(false);
         return;
       }
 
+      if (!result.ok) {
+        setProxyStatus('needs_auth');
+        setError(result.error || 'Proxy is running but not ready.');
+        setLoading(false);
+        return;
+      }
+
+      // Proxy is running and ok (even if auth couldn't be verified) - proceed!
       setProxyStatus('online');
+      setAvailableModels(result.models || []);
       await setProxyUrlStore(proxyUrl.trim());
       await setProxyEnabled(true);
       onComplete();
@@ -352,6 +387,8 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
                     ? 'bg-success/10 border border-success/30'
                     : proxyStatus === 'offline'
                     ? 'bg-error/10 border border-error/30'
+                    : proxyStatus === 'needs_auth'
+                    ? 'bg-warning/10 border border-warning/30'
                     : 'bg-bg-tertiary'
                 }`}>
                   <div className="flex items-center gap-2 mb-2">
@@ -361,6 +398,9 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
                     {proxyStatus === 'online' && (
                       <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
                     )}
+                    {proxyStatus === 'needs_auth' && (
+                      <div className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
+                    )}
                     {proxyStatus === 'offline' && (
                       <div className="h-2 w-2 rounded-full bg-error" />
                     )}
@@ -369,17 +409,31 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
                     )}
                     <span className={`font-medium ${
                       proxyStatus === 'online' ? 'text-success' :
+                      proxyStatus === 'needs_auth' ? 'text-yellow-500' :
                       proxyStatus === 'offline' ? 'text-error' :
                       'text-text-primary'
                     }`}>
                       {proxyStatus === 'checking' && 'Checking proxy...'}
-                      {proxyStatus === 'online' && 'Proxy is running'}
-                      {proxyStatus === 'offline' && 'Proxy not detected'}
+                      {proxyStatus === 'online' && 'Proxy is running & authenticated'}
+                      {proxyStatus === 'needs_auth' && 'Proxy needs authentication'}
+                      {proxyStatus === 'offline' && 'Proxy not running'}
                       {proxyStatus === 'unknown' && 'Use your Claude Pro/Max subscription'}
                     </span>
                   </div>
 
-                  {proxyStatus === 'offline' ? (
+                  {proxyStatus === 'needs_auth' ? (
+                    <div className="text-text-secondary space-y-2">
+                      <p>The proxy is running but not logged in. Please authenticate:</p>
+                      <div className="bg-bg-primary rounded p-2 font-mono text-xs">
+                        <p className="text-text-muted"># Run this in your terminal:</p>
+                        <p className="text-yellow-400 font-semibold">cli-proxy-api --claude-login</p>
+                      </div>
+                      <p className="text-xs text-text-muted">
+                        This will open a browser window to sign in with your Claude account.
+                        After signing in, click "Check" to verify.
+                      </p>
+                    </div>
+                  ) : proxyStatus === 'offline' ? (
                     <div className="text-text-secondary space-y-2">
                       <p>To use your Claude subscription, please start CLIProxyAPI:</p>
                       <div className="bg-bg-primary rounded p-2 font-mono text-xs">
@@ -392,9 +446,15 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
                       </div>
                     </div>
                   ) : proxyStatus === 'online' ? (
-                    <p className="text-text-secondary">
-                      CLIProxyAPI is ready. Click "Use Subscription" to continue.
-                    </p>
+                    <div className="text-text-secondary">
+                      <p>✓ CLIProxyAPI is ready. Click "Use Subscription" to continue.</p>
+                      {availableModels.length > 0 && (
+                        <p className="text-xs text-text-muted mt-1">
+                          Available: {availableModels.slice(0, 3).join(', ')}
+                          {availableModels.length > 3 && ` +${availableModels.length - 3} more`}
+                        </p>
+                      )}
+                    </div>
                   ) : proxyStatus === 'unknown' ? (
                     <p className="text-text-secondary">
                       Run CLIProxyAPI locally to use your existing Claude subscription

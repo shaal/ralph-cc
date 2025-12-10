@@ -110,6 +110,7 @@ export interface Config {
 export interface ProxyConfig {
   enabled: boolean;
   url: string; // e.g., "http://localhost:8317"
+  apiKey?: string; // API key configured in CLIProxyAPI's config.yaml api-keys list
 }
 
 // Event types

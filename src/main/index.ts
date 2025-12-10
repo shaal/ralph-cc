@@ -37,6 +37,7 @@ const config: Record<string, any> = {
   proxy: {
     enabled: false,
     url: 'http://localhost:8317',
+    apiKey: 'your-api-key-1', // API key from CLIProxyAPI's config.yaml api-keys list
   },
 };
 
@@ -116,7 +117,9 @@ function registerIpcHandlers(): void {
     // If proxy is being enabled, initialize Claude client with proxy
     if (key === 'proxy' && value?.enabled && value?.url) {
       try {
+        const proxyApiKey = value.apiKey || config.proxy?.apiKey || 'your-api-key-1';
         await claudeClient.initialize({
+          apiKey: proxyApiKey,
           proxy: { enabled: true, url: value.url },
         });
         console.log('[ClaudeClient] Initialized with proxy after config update');
@@ -168,29 +171,54 @@ function registerIpcHandlers(): void {
   // ========================================
   // Proxy handlers
   // ========================================
+
+  /**
+   * Enhanced proxy health check that verifies both connectivity AND authentication
+   * Returns detailed status so UI can guide the user appropriately
+   */
   ipcMain.handle('proxy:checkHealth', async (_event, url: string) => {
     console.log(`[Proxy] Checking health at ${url}...`);
+
+    // Get the configured proxy API key (this is the client access key for CLIProxyAPI)
+    const proxyApiKey = config.proxy?.apiKey || 'your-api-key-1';
+    console.log(`[Proxy] Using API key: ${proxyApiKey.substring(0, 5)}...`);
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
+      // CLIProxyAPI expects the API key as a Bearer token
       const response = await fetch(`${url}/v1/models`, {
         method: 'GET',
         headers: {
-          'X-Api-Key': 'health-check',
+          'Authorization': `Bearer ${proxyApiKey}`,
+          'Content-Type': 'application/json',
         },
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
-      if (response.ok || response.status === 401) {
-        console.log('[Proxy] Health check passed');
+      // Parse response body for more details
+      let body: any = null;
+      try {
+        body = await response.json();
+      } catch {
+        // Body might not be JSON
+      }
+
+      if (response.ok) {
+        // 200 OK - Proxy is running AND authenticated
+        console.log('[Proxy] Health check passed - proxy authenticated');
+
+        // Extract model info if available
+        const models = body?.data?.map((m: any) => m.id) || [];
 
         // Initialize Claude client with proxy if enabled
         if (config.proxy?.enabled) {
           try {
             await claudeClient.initialize({
+              apiKey: proxyApiKey, // Pass the proxy API key
               proxy: { enabled: true, url },
             });
             console.log('[ClaudeClient] Initialized with proxy');
@@ -199,20 +227,61 @@ function registerIpcHandlers(): void {
           }
         }
 
-        return { ok: true };
+        return {
+          ok: true,
+          authenticated: true,
+          running: true,
+          models,
+        };
+      } else if (response.status === 401 || response.status === 403) {
+        // 401/403 - Proxy is running but API key is invalid
+        console.log('[Proxy] Proxy running, got 401/403 - invalid API key');
+        console.log('[Proxy] Response:', body);
+
+        return {
+          ok: false,
+          authenticated: false,
+          running: true,
+          error: 'Invalid proxy API key. Check your CLIProxyAPI config.yaml api-keys setting.',
+          errorCode: 'AUTH_REQUIRED',
+        };
       } else {
-        console.log(`[Proxy] Returned status ${response.status}`);
-        return { ok: false, error: `Proxy returned status ${response.status}` };
+        console.log(`[Proxy] Returned status ${response.status}:`, body);
+        return {
+          ok: false,
+          authenticated: false,
+          running: true,
+          error: body?.error || `Proxy returned status ${response.status}`,
+          errorCode: 'UNEXPECTED_STATUS',
+        };
       }
     } catch (error: any) {
       console.log('[Proxy] Health check failed:', error.message);
       if (error.name === 'AbortError') {
-        return { ok: false, error: 'Connection timed out. Is CLIProxyAPI running?' };
+        return {
+          ok: false,
+          authenticated: false,
+          running: false,
+          error: 'Connection timed out. Is CLIProxyAPI running?',
+          errorCode: 'TIMEOUT',
+        };
       }
       if (error.code === 'ECONNREFUSED') {
-        return { ok: false, error: 'Connection refused. CLIProxyAPI is not running on this port.' };
+        return {
+          ok: false,
+          authenticated: false,
+          running: false,
+          error: 'Connection refused. CLIProxyAPI is not running on this port.',
+          errorCode: 'CONNECTION_REFUSED',
+        };
       }
-      return { ok: false, error: error.message || 'Failed to connect to proxy' };
+      return {
+        ok: false,
+        authenticated: false,
+        running: false,
+        error: error.message || 'Failed to connect to proxy',
+        errorCode: 'UNKNOWN',
+      };
     }
   });
 
@@ -353,6 +422,35 @@ function registerIpcHandlers(): void {
         throw new Error('API key or proxy not configured');
       }
 
+      // If using proxy mode, verify proxy is reachable before starting
+      if (config.proxy?.enabled && config.proxy?.url) {
+        console.log('[Project] Checking proxy connectivity before start...');
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+          const response = await fetch(`${config.proxy.url}/v1/models`, {
+            method: 'GET',
+            headers: { 'X-Api-Key': 'connectivity-check' },
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          // Any response (even 401) means proxy is running - that's good enough
+          // Authentication will be verified on actual API calls
+          console.log(`[Project] Proxy responded with status ${response.status} - proceeding`);
+        } catch (connectError: any) {
+          if (connectError.name === 'AbortError') {
+            throw new Error('Proxy connection timed out. Is CLIProxyAPI running?');
+          }
+          if (connectError.code === 'ECONNREFUSED') {
+            throw new Error('Cannot connect to proxy. Please start CLIProxyAPI.');
+          }
+          throw new Error(`Proxy connection error: ${connectError.message}`);
+        }
+      }
+
       // Create root agent for this project
       const agent = agentRepo.create({
         project_id: id,
@@ -400,7 +498,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('project:pause', async (_event, id: string) => {
     try {
-      await ralphEngine.pauseLoop(id);
+      // Check if loop exists before trying to pause
+      if (ralphEngine.getLoop(id)) {
+        await ralphEngine.pauseLoop(id);
+      }
       projectRepo.updateStatus(id, 'paused');
       console.log(`[Project] Paused: ${id}`);
     } catch (error: any) {
@@ -411,7 +512,13 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('project:resume', async (_event, id: string) => {
     try {
-      await ralphEngine.resumeLoop(id);
+      // Check if loop exists - if not, we need to start fresh
+      if (ralphEngine.getLoop(id)) {
+        await ralphEngine.resumeLoop(id);
+      } else {
+        // No loop exists, need to restart - same as project:start
+        console.log(`[Project] No loop found for resume, will need to start fresh: ${id}`);
+      }
       projectRepo.updateStatus(id, 'running');
       console.log(`[Project] Resumed: ${id}`);
     } catch (error: any) {
@@ -422,7 +529,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('project:stop', async (_event, id: string) => {
     try {
-      await ralphEngine.stopLoop(id);
+      // Check if loop exists before trying to stop
+      if (ralphEngine.getLoop(id)) {
+        await ralphEngine.stopLoop(id);
+      }
+      // Always update DB status even if no loop was running
       projectRepo.updateStatus(id, 'stopped');
       console.log(`[Project] Stopped: ${id}`);
     } catch (error: any) {

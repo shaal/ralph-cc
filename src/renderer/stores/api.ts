@@ -67,13 +67,25 @@ const mockApi = {
   },
   proxy: {
     /**
-     * Check if the proxy is running and responding
-     * Returns { ok: true } if healthy, { ok: false, error: string } if not
+     * Check if the proxy is running and authenticated
+     * Returns detailed status including authentication state
      */
-    checkHealth: async (url: string): Promise<{ ok: boolean; error?: string }> => {
-      // In browser mock, simulate a successful check
+    checkHealth: async (url: string): Promise<{
+      ok: boolean;
+      authenticated?: boolean;
+      running?: boolean;
+      models?: string[];
+      error?: string;
+      errorCode?: string;
+    }> => {
+      // In browser mock, simulate a fully authenticated proxy
       console.log(`[Mock] Checking proxy health at ${url}`);
-      return { ok: true };
+      return {
+        ok: true,
+        authenticated: true,
+        running: true,
+        models: ['claude-sonnet-4', 'claude-opus-4', 'claude-haiku-3.5'],
+      };
     },
   },
   on: (_channel: string, _callback: (data: any) => void) => {
