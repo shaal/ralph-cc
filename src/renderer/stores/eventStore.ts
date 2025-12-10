@@ -48,49 +48,59 @@ export const useEventStore = create<EventState>()(
           try {
             switch (event.type) {
               case 'project_created': {
-                const project = event.data;
-                useProjectStore.getState().updateProject(project.id, project);
+                // Event data contains { projectId, name } - just show notification
+                // The project is already added to the store by the create action
+                const { name } = event.data;
                 useUIStore.getState().addNotification({
                   type: 'success',
                   title: 'Project Created',
-                  message: `Project "${project.name}" has been created.`,
+                  message: `Project "${name}" has been created.`,
                 });
                 break;
               }
 
               case 'project_updated': {
-                const { id, ...updates } = event.data;
-                useProjectStore.getState().updateProject(id, updates);
+                const { projectId, id, ...updates } = event.data;
+                const targetId = projectId || id;
+                if (targetId) {
+                  useProjectStore.getState().updateProject(targetId, updates);
+                }
                 break;
               }
 
               case 'project_deleted': {
-                const { id } = event.data;
-                useProjectStore.getState().deleteProject(id);
-                useUIStore.getState().addNotification({
-                  type: 'info',
-                  message: 'Project has been deleted.',
-                });
+                const { projectId, id } = event.data;
+                const targetId = projectId || id;
+                if (targetId) {
+                  useProjectStore.getState().deleteProject(targetId);
+                  useUIStore.getState().addNotification({
+                    type: 'info',
+                    message: 'Project has been deleted.',
+                  });
+                }
                 break;
               }
 
               case 'project_status_changed': {
-                const { id, status, previousStatus } = event.data;
-                useProjectStore.getState().updateProject(id, { status });
+                const { projectId, id, status } = event.data;
+                const targetId = projectId || id;
+                if (targetId) {
+                  useProjectStore.getState().updateProject(targetId, { status });
 
-                // Show notification for important status changes
-                if (status === 'completed') {
-                  useUIStore.getState().addNotification({
-                    type: 'success',
-                    title: 'Project Completed',
-                    message: `Project has finished successfully.`,
-                  });
-                } else if (status === 'failed') {
-                  useUIStore.getState().addNotification({
-                    type: 'error',
-                    title: 'Project Failed',
-                    message: `Project encountered an error.`,
-                  });
+                  // Show notification for important status changes
+                  if (status === 'completed') {
+                    useUIStore.getState().addNotification({
+                      type: 'success',
+                      title: 'Project Completed',
+                      message: `Project has finished successfully.`,
+                    });
+                  } else if (status === 'failed') {
+                    useUIStore.getState().addNotification({
+                      type: 'error',
+                      title: 'Project Failed',
+                      message: `Project encountered an error.`,
+                    });
+                  }
                 }
                 break;
               }
@@ -193,9 +203,11 @@ export const useEventStore = create<EventState>()(
 
               case 'circuit_breaker_triggered': {
                 const { projectId, reason } = event.data;
-                useProjectStore.getState().updateProject(projectId, {
-                  status: 'paused',
-                });
+                if (projectId) {
+                  useProjectStore.getState().updateProject(projectId, {
+                    status: 'paused',
+                  });
+                }
                 useUIStore.getState().addNotification({
                   type: 'warning',
                   title: 'Circuit Breaker Triggered',
@@ -207,13 +219,17 @@ export const useEventStore = create<EventState>()(
 
               case 'budget_limit_reached': {
                 const { projectId, budgetLimit, costTotal } = event.data;
-                useProjectStore.getState().updateProject(projectId, {
-                  status: 'paused',
-                });
+                if (projectId) {
+                  useProjectStore.getState().updateProject(projectId, {
+                    status: 'paused',
+                  });
+                }
+                const cost = costTotal ?? 0;
+                const limit = budgetLimit ?? 0;
                 useUIStore.getState().addNotification({
                   type: 'warning',
                   title: 'Budget Limit Reached',
-                  message: `Project paused: cost ($${costTotal.toFixed(2)}) exceeded limit ($${budgetLimit.toFixed(2)}).`,
+                  message: `Project paused: cost ($${cost.toFixed(2)}) exceeded limit ($${limit.toFixed(2)}).`,
                   duration: 10000,
                 });
                 break;

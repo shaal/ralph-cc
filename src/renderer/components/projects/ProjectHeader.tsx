@@ -52,10 +52,12 @@ const formatDuration = (startDate: string, endDate?: string | null): string => {
   return parts.join(' ');
 };
 
-const formatCost = (cost: number, budget: number): { text: string; percentage: number; isOverBudget: boolean } => {
-  const percentage = budget > 0 ? (cost / budget) * 100 : 0;
-  const isOverBudget = cost > budget;
-  const text = `$${cost.toFixed(4)} / $${budget.toFixed(2)}`;
+const formatCost = (cost: number | undefined, budget: number | undefined): { text: string; percentage: number; isOverBudget: boolean } => {
+  const safeCost = cost ?? 0;
+  const safeBudget = budget ?? 10; // Default budget
+  const percentage = safeBudget > 0 ? (safeCost / safeBudget) * 100 : 0;
+  const isOverBudget = safeCost > safeBudget;
+  const text = `$${safeCost.toFixed(4)} / $${safeBudget.toFixed(2)}`;
   return { text, percentage, isOverBudget };
 };
 
@@ -80,7 +82,7 @@ export const ProjectHeader: React.FC<ProjectHeaderProps> = ({
   const canPause = isRunning;
   const canStop = isRunning || isPaused;
 
-  const costInfo = formatCost(project.cost_total, project.settings.budgetLimit);
+  const costInfo = formatCost(project.cost_total, project.settings?.budgetLimit);
 
   // Update current time every second for live duration display
   useEffect(() => {

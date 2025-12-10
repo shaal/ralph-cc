@@ -1,16 +1,32 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron';
 import { join } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
+import * as fs from 'fs';
+
+// Database
+import DatabaseManager from './database/Database';
+import { ProjectRepository } from './database/repositories/ProjectRepository';
+import { AgentRepository } from './database/repositories/AgentRepository';
+import { HistoryRepository } from './database/repositories/HistoryRepository';
+
+// Services
+import { ClaudeClient } from './claude/ClaudeClient';
+import { RalphEngine } from './services/ralph/RalphEngine';
+import { getEventBus, type Event, type EventType } from './services/EventBus';
 
 let mainWindow: BrowserWindow | null = null;
 
-// Mock data for initial development
-const mockProjects: any[] = [];
+// Service instances (initialized after database)
+let projectRepo: ProjectRepository;
+let agentRepo: AgentRepository;
+let historyRepo: HistoryRepository;
+let claudeClient: ClaudeClient;
+let ralphEngine: RalphEngine;
 
-// Config that matches the renderer's Config type from stores/types.ts
-const mockConfig: Record<string, any> = {
+// Config stored in memory (could be persisted to DB later)
+const config: Record<string, any> = {
   theme: 'dark',
-  defaultModel: 'claude-opus-4-5-20251101',
+  defaultModel: 'claude-sonnet-4',
   defaultTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
   defaultBudgetLimit: 10,
   defaultMaxIterations: 100,
@@ -18,7 +34,6 @@ const mockConfig: Record<string, any> = {
   completionThreshold: 3,
   eventThrottleMs: 16,
   maxRecentEvents: 100,
-  // Proxy configuration for using Claude subscription via CLIProxyAPI
   proxy: {
     enabled: false,
     url: 'http://localhost:8317',
@@ -26,33 +41,115 @@ const mockConfig: Record<string, any> = {
 };
 
 let hasApiKey = false;
+let storedApiKey: string | null = null;
 
-// Register IPC handlers
-function registerIpcHandlers(): void {
-  // Config handlers - return data directly (not wrapped) to match store expectations
-  ipcMain.handle('config:get', async () => {
-    return mockConfig;
+/**
+ * Initialize database and services
+ */
+function initializeServices(): void {
+  console.log('[Main] Initializing services...');
+
+  // Initialize database
+  DatabaseManager.init();
+  console.log('[Main] Database initialized at:', DatabaseManager.getPath());
+
+  // Create repositories
+  projectRepo = new ProjectRepository();
+  agentRepo = new AgentRepository();
+  historyRepo = new HistoryRepository();
+
+  // Create Claude client (will be initialized with API key later)
+  claudeClient = new ClaudeClient();
+
+  // Create Ralph engine
+  ralphEngine = new RalphEngine(claudeClient, {
+    maxConcurrentLoops: 10,
+    defaultModel: config.defaultModel,
+    defaultMaxTokens: 8192,
+    defaultMaxIterations: config.defaultMaxIterations,
   });
 
-  ipcMain.handle('config:set', async (_event, config: any) => {
-    Object.assign(mockConfig, config);
-    console.log('Config updated:', Object.keys(config));
+  console.log('[Main] Services initialized');
+}
+
+/**
+ * Forward EventBus events to renderer via IPC
+ */
+function setupEventForwarding(): void {
+  const eventBus = getEventBus();
+
+  // Subscribe to all events and forward to renderer
+  eventBus.subscribeAll((event: Event) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('event', {
+        type: event.type,
+        data: event.data,
+        timestamp: event.timestamp,
+        id: event.id,
+      });
+    }
+  });
+
+  console.log('[Main] Event forwarding configured');
+}
+
+/**
+ * Register all IPC handlers
+ */
+function registerIpcHandlers(): void {
+  // ========================================
+  // Config handlers
+  // ========================================
+  ipcMain.handle('config:get', async () => {
+    return config;
+  });
+
+  ipcMain.handle('config:set', async (_event, newConfig: any) => {
+    Object.assign(config, newConfig);
+    console.log('[Config] Updated:', Object.keys(newConfig));
   });
 
   ipcMain.handle('config:update', async (_event, key: string, value: any) => {
-    mockConfig[key] = value;
-    console.log(`Config updated: ${key} =`, value);
+    config[key] = value;
+    console.log(`[Config] Updated: ${key} =`, value);
+
+    // If proxy is being enabled, initialize Claude client with proxy
+    if (key === 'proxy' && value?.enabled && value?.url) {
+      try {
+        await claudeClient.initialize({
+          proxy: { enabled: true, url: value.url },
+        });
+        console.log('[ClaudeClient] Initialized with proxy after config update');
+      } catch (error) {
+        console.error('[ClaudeClient] Failed to initialize with proxy:', error);
+      }
+    }
   });
 
+  // ========================================
   // Keychain handlers
+  // ========================================
   ipcMain.handle('keychain:setApiKey', async (_event, key: string) => {
-    console.log('API key set (stored securely)');
+    // In production, use electron-keychain or similar
+    storedApiKey = key;
     hasApiKey = true;
+    console.log('[Keychain] API key stored');
+
+    // Initialize Claude client with the key
+    try {
+      await claudeClient.initialize({
+        apiKey: key,
+        proxy: config.proxy,
+      });
+      console.log('[ClaudeClient] Initialized with API key');
+    } catch (error) {
+      console.error('[ClaudeClient] Failed to initialize:', error);
+    }
   });
 
   ipcMain.handle('keychain:hasApiKey', async () => {
     // If proxy is enabled, we don't need an API key
-    if (mockConfig.proxy?.enabled) {
+    if (config.proxy?.enabled) {
       return true;
     }
     return hasApiKey;
@@ -62,18 +159,25 @@ function registerIpcHandlers(): void {
     return hasApiKey ? 'sk-***' : null;
   });
 
+  ipcMain.handle('keychain:deleteApiKey', async () => {
+    storedApiKey = null;
+    hasApiKey = false;
+    console.log('[Keychain] API key deleted');
+  });
+
+  // ========================================
   // Proxy handlers
+  // ========================================
   ipcMain.handle('proxy:checkHealth', async (_event, url: string) => {
-    console.log(`Checking proxy health at ${url}...`);
+    console.log(`[Proxy] Checking health at ${url}...`);
     try {
-      // Try to fetch from the proxy - use /v1/models as a health check endpoint
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(`${url}/v1/models`, {
         method: 'GET',
         headers: {
-          'X-Api-Key': 'health-check', // Dummy key for health check
+          'X-Api-Key': 'health-check',
         },
         signal: controller.signal,
       });
@@ -81,16 +185,27 @@ function registerIpcHandlers(): void {
       clearTimeout(timeoutId);
 
       if (response.ok || response.status === 401) {
-        // 401 is actually good - it means the proxy is running but needs auth
-        // The proxy will handle real auth when we make actual requests
-        console.log('Proxy health check passed');
+        console.log('[Proxy] Health check passed');
+
+        // Initialize Claude client with proxy if enabled
+        if (config.proxy?.enabled) {
+          try {
+            await claudeClient.initialize({
+              proxy: { enabled: true, url },
+            });
+            console.log('[ClaudeClient] Initialized with proxy');
+          } catch (error) {
+            console.error('[ClaudeClient] Failed to initialize with proxy:', error);
+          }
+        }
+
         return { ok: true };
       } else {
-        console.log(`Proxy returned status ${response.status}`);
+        console.log(`[Proxy] Returned status ${response.status}`);
         return { ok: false, error: `Proxy returned status ${response.status}` };
       }
     } catch (error: any) {
-      console.log('Proxy health check failed:', error.message);
+      console.log('[Proxy] Health check failed:', error.message);
       if (error.name === 'AbortError') {
         return { ok: false, error: 'Connection timed out. Is CLIProxyAPI running?' };
       }
@@ -101,105 +216,323 @@ function registerIpcHandlers(): void {
     }
   });
 
-  // Project handlers
+  // ========================================
+  // Project handlers (using real database)
+  // Returns data directly to match store expectations
+  // ========================================
   ipcMain.handle('project:list', async () => {
-    return { success: true, data: mockProjects };
+    try {
+      const projects = projectRepo.findAllWithSettings();
+
+      // Convert database format to renderer format
+      const formattedProjects = projects.map(p => ({
+        id: p.id,
+        name: p.name,
+        description: p.description || '',
+        prompt: '', // We store prompt_path, not prompt content
+        promptPath: p.prompt_path,
+        status: p.status,
+        settings: p.settings,
+        cost_total: p.cost_total,
+        iteration_count: p.iteration_count,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+      }));
+
+      return formattedProjects;
+    } catch (error: any) {
+      console.error('[Project] List error:', error);
+      return [];
+    }
   });
 
   ipcMain.handle('project:get', async (_event, id: string) => {
-    const project = mockProjects.find(p => p.id === id);
-    return { success: true, data: project || null };
+    try {
+      const project = projectRepo.findByIdWithSettings(id);
+      if (!project) {
+        return null;
+      }
+
+      return {
+        id: project.id,
+        name: project.name,
+        description: project.description || '',
+        prompt: '',
+        promptPath: project.prompt_path,
+        status: project.status,
+        settings: project.settings,
+        cost_total: project.cost_total,
+        iteration_count: project.iteration_count,
+        created_at: project.created_at,
+        updated_at: project.updated_at,
+      };
+    } catch (error: any) {
+      console.error('[Project] Get error:', error);
+      return null;
+    }
   });
 
   ipcMain.handle('project:create', async (_event, data: any) => {
-    const newProject = {
-      id: `project-${Date.now()}`,
-      name: data.name,
-      description: data.description || '',
-      prompt: data.prompt,
-      status: 'created',
-      settings: data.settings || {},
-      cost_total: 0,
-      iteration_count: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    mockProjects.push(newProject);
-    return { success: true, data: newProject };
+    try {
+      // For now, create a temporary prompt file or use inline prompt
+      // In production, you'd have proper prompt file management
+      const promptPath = data.promptPath || `/tmp/constellation-prompt-${Date.now()}.md`;
+
+      // Write prompt content to file if provided
+      if (data.prompt) {
+        fs.writeFileSync(promptPath, data.prompt, 'utf-8');
+      }
+
+      const project = projectRepo.create({
+        name: data.name,
+        description: data.description || '',
+        prompt_path: promptPath,
+        settings: data.settings || {
+          model: config.defaultModel,
+          maxIterations: config.defaultMaxIterations,
+          budgetLimit: config.defaultBudgetLimit,
+          enabledTools: config.defaultTools,
+        },
+      });
+
+      const eventBus = getEventBus();
+      eventBus.emit('project_created', {
+        projectId: project.id,
+        name: project.name,
+      });
+
+      return {
+        id: project.id,
+        name: project.name,
+        description: project.description || '',
+        prompt: data.prompt || '',
+        promptPath: project.prompt_path,
+        status: project.status,
+        settings: project.settings,
+        cost_total: project.cost_total,
+        iteration_count: project.iteration_count,
+        created_at: project.created_at,
+        updated_at: project.updated_at,
+      };
+    } catch (error: any) {
+      console.error('[Project] Create error:', error);
+      throw error;
+    }
   });
 
   ipcMain.handle('project:update', async (_event, id: string, data: any) => {
-    const index = mockProjects.findIndex(p => p.id === id);
-    if (index !== -1) {
-      mockProjects[index] = { ...mockProjects[index], ...data, updated_at: new Date().toISOString() };
-      return { success: true, data: mockProjects[index] };
+    try {
+      const project = projectRepo.update(id, data);
+      return project;
+    } catch (error: any) {
+      console.error('[Project] Update error:', error);
+      throw error;
     }
-    return { success: false, error: 'Project not found' };
   });
 
   ipcMain.handle('project:delete', async (_event, id: string) => {
-    const index = mockProjects.findIndex(p => p.id === id);
-    if (index !== -1) {
-      mockProjects.splice(index, 1);
-      return { success: true };
+    try {
+      projectRepo.delete(id);
+    } catch (error: any) {
+      console.error('[Project] Delete error:', error);
+      throw error;
     }
-    return { success: false, error: 'Project not found' };
   });
 
   ipcMain.handle('project:start', async (_event, id: string) => {
-    const index = mockProjects.findIndex(p => p.id === id);
-    if (index !== -1) {
-      mockProjects[index].status = 'running';
-      return { success: true };
+    try {
+      const project = projectRepo.findByIdWithSettings(id);
+      if (!project) {
+        throw new Error('Project not found');
+      }
+
+      // Check if Claude client is initialized
+      if (!claudeClient.isInitialized()) {
+        const eventBus = getEventBus();
+        eventBus.emit('api_key_required', { projectId: id });
+        throw new Error('API key or proxy not configured');
+      }
+
+      // Create root agent for this project
+      const agent = agentRepo.create({
+        project_id: id,
+        name: `${project.name} Agent`,
+        config: {
+          model: project.settings?.model || config.defaultModel,
+          maxTokens: 8192,
+          temperature: 0.7,
+          maxIterations: project.settings?.maxIterations || config.defaultMaxIterations,
+          enabledTools: project.settings?.enabledTools || config.defaultTools,
+        },
+      });
+
+      // Update project status
+      projectRepo.updateStatus(id, 'running');
+
+      // Start the Ralph loop
+      await ralphEngine.startLoop(
+        {
+          id: project.id,
+          name: project.name,
+          promptPath: project.prompt_path,
+          workingDirectory: process.cwd(), // TODO: Use project-specific directory
+          status: 'running',
+          settings: project.settings || {},
+        },
+        {
+          id: agent.id,
+          projectId: id,
+          parentId: undefined,
+          name: agent.name,
+          status: 'running',
+          config: agent.config as any,
+          history: [],
+          outputs: [],
+        }
+      );
+
+      console.log(`[Project] Started: ${project.name} (${id})`);
+    } catch (error: any) {
+      console.error('[Project] Start error:', error);
+      throw error;
     }
-    return { success: false, error: 'Project not found' };
   });
 
   ipcMain.handle('project:pause', async (_event, id: string) => {
-    const index = mockProjects.findIndex(p => p.id === id);
-    if (index !== -1) {
-      mockProjects[index].status = 'paused';
-      return { success: true };
+    try {
+      await ralphEngine.pauseLoop(id);
+      projectRepo.updateStatus(id, 'paused');
+      console.log(`[Project] Paused: ${id}`);
+    } catch (error: any) {
+      console.error('[Project] Pause error:', error);
+      throw error;
     }
-    return { success: false, error: 'Project not found' };
   });
 
   ipcMain.handle('project:resume', async (_event, id: string) => {
-    const index = mockProjects.findIndex(p => p.id === id);
-    if (index !== -1) {
-      mockProjects[index].status = 'running';
-      return { success: true };
+    try {
+      await ralphEngine.resumeLoop(id);
+      projectRepo.updateStatus(id, 'running');
+      console.log(`[Project] Resumed: ${id}`);
+    } catch (error: any) {
+      console.error('[Project] Resume error:', error);
+      throw error;
     }
-    return { success: false, error: 'Project not found' };
   });
 
   ipcMain.handle('project:stop', async (_event, id: string) => {
-    const index = mockProjects.findIndex(p => p.id === id);
-    if (index !== -1) {
-      mockProjects[index].status = 'stopped';
-      return { success: true };
+    try {
+      await ralphEngine.stopLoop(id);
+      projectRepo.updateStatus(id, 'stopped');
+      console.log(`[Project] Stopped: ${id}`);
+    } catch (error: any) {
+      console.error('[Project] Stop error:', error);
+      throw error;
     }
-    return { success: false, error: 'Project not found' };
   });
 
+  ipcMain.handle('project:cost', async (_event, id: string) => {
+    try {
+      const loopInfo = ralphEngine.getLoopInfo(id);
+      if (loopInfo) {
+        return { cost: loopInfo.costTotal };
+      }
+
+      // Fallback to database
+      const project = projectRepo.findById(id);
+      return { cost: project?.cost_total || 0 };
+    } catch (error: any) {
+      console.error('[Project] Cost error:', error);
+      return { cost: 0 };
+    }
+  });
+
+  ipcMain.handle('project:outputs', async (_event, id: string, _options?: any) => {
+    try {
+      // TODO: Implement outputs repository query
+      return [];
+    } catch (error: any) {
+      console.error('[Project] Outputs error:', error);
+      return [];
+    }
+  });
+
+  // ========================================
   // Agent handlers
+  // ========================================
   ipcMain.handle('agent:list', async (_event, projectId: string) => {
-    return { success: true, data: [] };
+    try {
+      const agents = agentRepo.findByProjectId(projectId);
+      return agents;
+    } catch (error: any) {
+      console.error('[Agent] List error:', error);
+      return [];
+    }
   });
 
   ipcMain.handle('agent:get', async (_event, id: string) => {
-    return { success: true, data: null };
+    try {
+      const agent = agentRepo.findById(id);
+      return agent || null;
+    } catch (error: any) {
+      console.error('[Agent] Get error:', error);
+      return null;
+    }
   });
 
   ipcMain.handle('agent:history', async (_event, id: string, options: any) => {
-    return { success: true, data: [] };
+    try {
+      const history = historyRepo.findByAgentId(id, options);
+      return history;
+    } catch (error: any) {
+      console.error('[Agent] History error:', error);
+      return [];
+    }
   });
 
-  console.log('IPC handlers registered');
+  ipcMain.handle('agent:pause', async (_event, id: string) => {
+    try {
+      const agent = agentRepo.findById(id);
+      if (agent) {
+        await ralphEngine.pauseLoop(agent.project_id);
+        agentRepo.updateStatus(id, 'paused');
+      }
+    } catch (error: any) {
+      console.error('[Agent] Pause error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('agent:resume', async (_event, id: string) => {
+    try {
+      const agent = agentRepo.findById(id);
+      if (agent) {
+        await ralphEngine.resumeLoop(agent.project_id);
+        agentRepo.updateStatus(id, 'running');
+      }
+    } catch (error: any) {
+      console.error('[Agent] Resume error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('agent:stop', async (_event, id: string) => {
+    try {
+      const agent = agentRepo.findById(id);
+      if (agent) {
+        await ralphEngine.stopLoop(agent.project_id);
+        agentRepo.updateStatus(id, 'stopped');
+      }
+    } catch (error: any) {
+      console.error('[Agent] Stop error:', error);
+      throw error;
+    }
+  });
+
+  console.log('[Main] IPC handlers registered');
 }
 
 function createWindow(): void {
-  // Create the browser window
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -218,7 +551,7 @@ function createWindow(): void {
       contextIsolation: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
-    }
+    },
   });
 
   mainWindow.on('ready-to-show', () => {
@@ -230,11 +563,9 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
-  // HMR for renderer base on electron-vite cli
-  // Load the remote URL for development or the local html file for production
+  // HMR for renderer based on electron-vite cli
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
-    // Open DevTools in development
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
@@ -243,23 +574,25 @@ function createWindow(): void {
 
 // This method will be called when Electron has finished initialization
 app.whenReady().then(() => {
-  // Set app user model id for windows
   electronApp.setAppUserModelId('com.constellation.app');
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
 
-  // Register IPC handlers BEFORE creating window
+  // Initialize services BEFORE registering IPC handlers
+  initializeServices();
+
+  // Register IPC handlers
   registerIpcHandlers();
 
+  // Setup event forwarding from EventBus to renderer
+  setupEventForwarding();
+
+  // Create window
   createWindow();
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
@@ -272,16 +605,24 @@ app.on('window-all-closed', () => {
 });
 
 // Handle app lifecycle
-app.on('before-quit', () => {
-  // Cleanup logic will go here (close DB connections, etc.)
+app.on('before-quit', async () => {
+  console.log('[Main] Shutting down...');
+
+  // Stop all running Ralph loops
+  if (ralphEngine) {
+    await ralphEngine.shutdown();
+  }
+
+  // Close database connection
+  DatabaseManager.close();
+
+  console.log('[Main] Shutdown complete');
 });
 
 // Security: Prevent navigation to external URLs
 app.on('web-contents-created', (_, contents) => {
   contents.on('will-navigate', (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
-
-    // Allow navigation only to app's own content
     if (parsedUrl.origin !== 'file://') {
       event.preventDefault();
     }
@@ -292,7 +633,6 @@ app.on('web-contents-created', (_, contents) => {
   });
 
   contents.setWindowOpenHandler(({ url }) => {
-    // Open links in external browser
     if (url.startsWith('http:') || url.startsWith('https:')) {
       shell.openExternal(url);
     }

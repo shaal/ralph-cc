@@ -5,7 +5,7 @@ import type { Agent } from './types';
 import { getApi } from './api';
 
 interface AgentState {
-  agents: Map<string, Agent[]>; // projectId -> agents
+  agents: Record<string, Agent[]>; // projectId -> agents (changed from Map to Record)
   selectedAgentId: string | null;
   loading: boolean;
   error: Error | null;
@@ -31,7 +31,7 @@ interface AgentState {
 export const useAgentStore = create<AgentState>()(
   devtools(
     immer((set, get) => ({
-      agents: new Map(),
+      agents: {},
       selectedAgentId: null,
       loading: false,
       error: null,
@@ -41,7 +41,7 @@ export const useAgentStore = create<AgentState>()(
         try {
           const agents = await getApi().agent.list(projectId);
           set((state) => {
-            state.agents.set(projectId, agents);
+            state.agents[projectId] = agents;
             state.loading = false;
           });
         } catch (error) {
@@ -53,12 +53,11 @@ export const useAgentStore = create<AgentState>()(
       updateAgent: (agentId, data) => {
         set((state) => {
           // Find the agent in any project
-          for (const [projectId, agents] of state.agents.entries()) {
+          for (const projectId of Object.keys(state.agents)) {
+            const agents = state.agents[projectId];
             const index = agents.findIndex((a) => a.id === agentId);
             if (index !== -1) {
-              const updatedAgents = [...agents];
-              updatedAgents[index] = { ...updatedAgents[index], ...data };
-              state.agents.set(projectId, updatedAgents);
+              state.agents[projectId][index] = { ...agents[index], ...data };
               break;
             }
           }
@@ -67,8 +66,8 @@ export const useAgentStore = create<AgentState>()(
 
       addAgent: (agent) => {
         set((state) => {
-          const agents = state.agents.get(agent.projectId) || [];
-          state.agents.set(agent.projectId, [...agents, agent]);
+          const agents = state.agents[agent.projectId] || [];
+          state.agents[agent.projectId] = [...agents, agent];
         });
       },
 
@@ -98,21 +97,21 @@ export const useAgentStore = create<AgentState>()(
 
       clearAgents: (projectId) => {
         set((state) => {
-          state.agents.delete(projectId);
+          delete state.agents[projectId];
         });
       },
 
       // Selectors
       getAgentsByProject: (projectId) => {
         const { agents } = get();
-        return agents.get(projectId) || [];
+        return agents[projectId] || [];
       },
 
       getSelectedAgent: () => {
         const { agents, selectedAgentId } = get();
         if (!selectedAgentId) return null;
 
-        for (const projectAgents of agents.values()) {
+        for (const projectAgents of Object.values(agents)) {
           const agent = projectAgents.find((a) => a.id === selectedAgentId);
           if (agent) return agent;
         }
@@ -121,7 +120,7 @@ export const useAgentStore = create<AgentState>()(
 
       getAgentById: (id) => {
         const { agents } = get();
-        for (const projectAgents of agents.values()) {
+        for (const projectAgents of Object.values(agents)) {
           const agent = projectAgents.find((a) => a.id === id);
           if (agent) return agent;
         }
@@ -136,7 +135,7 @@ export const useAgentStore = create<AgentState>()(
       getChildAgents: (parentId) => {
         const { agents } = get();
         const allAgents: Agent[] = [];
-        for (const projectAgents of agents.values()) {
+        for (const projectAgents of Object.values(agents)) {
           allAgents.push(...projectAgents);
         }
         return allAgents.filter((a) => a.parentId === parentId);

@@ -7,14 +7,29 @@ import DatabaseManager from '../Database';
 
 /**
  * Base repository providing common database operations
+ * Uses lazy initialization to avoid accessing DB before it's ready
  */
 export abstract class BaseRepository<T> {
-  protected db: Database.Database;
+  private _db: Database.Database | null = null;
   protected tableName: string;
 
   constructor(tableName: string) {
     this.tableName = tableName;
-    this.db = DatabaseManager.getDb();
+  }
+
+  /**
+   * Lazy getter for database connection
+   * Automatically initializes the database if not already done
+   */
+  protected get db(): Database.Database {
+    if (!this._db) {
+      // Initialize database if not already done
+      if (!DatabaseManager.isInitialized()) {
+        DatabaseManager.init();
+      }
+      this._db = DatabaseManager.getDb();
+    }
+    return this._db;
   }
 
   /**
