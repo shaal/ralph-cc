@@ -155,14 +155,51 @@ const ErrorScreen: React.FC<{ error: Error; onRetry: () => void }> = ({ error, o
 /**
  * API Key Setup Screen
  * Shown when no API key is configured
+ * Supports both API key and proxy (Claude subscription) modes
  */
 const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+  const [mode, setMode] = useState<'apikey' | 'proxy'>('apikey');
   const [apiKey, setApiKey] = useState('');
+  const [proxyUrl, setProxyUrl] = useState('http://localhost:8317');
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [proxyStatus, setProxyStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
   const setApiKeyStore = useConfigStore((state) => state.setApiKey);
+  const setProxyEnabled = useConfigStore((state) => state.setProxyEnabled);
+  const setProxyUrlStore = useConfigStore((state) => state.setProxyUrl);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Check proxy health when URL changes or mode switches to proxy
+  const checkProxyHealth = async (url: string) => {
+    setChecking(true);
+    setProxyStatus('checking');
+    setError(null);
+
+    try {
+      const { getApi } = await import('./stores/api');
+      const result = await getApi().proxy.checkHealth(url);
+      if (result.ok) {
+        setProxyStatus('online');
+      } else {
+        setProxyStatus('offline');
+        setError(result.error || 'Proxy is not responding');
+      }
+    } catch (err) {
+      setProxyStatus('offline');
+      setError('Failed to check proxy status');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // Check proxy when switching to proxy mode
+  useEffect(() => {
+    if (mode === 'proxy' && proxyUrl.trim()) {
+      checkProxyHealth(proxyUrl.trim());
+    }
+  }, [mode]);
+
+  const handleApiKeySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!apiKey.trim()) {
       setError('Please enter your API key');
@@ -182,6 +219,45 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
     }
   };
 
+  const handleProxySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!proxyUrl.trim()) {
+      setError('Please enter the proxy URL');
+      return;
+    }
+
+    // First check if proxy is running
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { getApi } = await import('./stores/api');
+      const result = await getApi().proxy.checkHealth(proxyUrl.trim());
+
+      if (!result.ok) {
+        setProxyStatus('offline');
+        setError(result.error || 'Proxy is not running. Please start CLIProxyAPI first.');
+        setLoading(false);
+        return;
+      }
+
+      setProxyStatus('online');
+      await setProxyUrlStore(proxyUrl.trim());
+      await setProxyEnabled(true);
+      onComplete();
+    } catch (err) {
+      setError('Failed to configure proxy. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCheckProxy = () => {
+    if (proxyUrl.trim()) {
+      checkProxyHealth(proxyUrl.trim());
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-8">
       <motion.div
@@ -189,7 +265,7 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <Card className="w-[480px]">
+        <Card className="w-[520px]">
           <div className="p-8">
             <div className="mb-6 flex items-center justify-center">
               <div className="rounded-full bg-primary/10 p-4">
@@ -200,42 +276,183 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
             <h2 className="mb-2 text-center text-2xl font-bold text-text-primary">
               Welcome to Constellation
             </h2>
-            <p className="mb-8 text-center text-sm text-text-secondary">
-              Enter your Anthropic API key to start orchestrating AI agent swarms.
+            <p className="mb-6 text-center text-sm text-text-secondary">
+              Choose how to connect to Claude
             </p>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <Input
-                type="password"
-                placeholder="sk-ant-api03-..."
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                error={error || undefined}
-              />
-
-              <Button
-                type="submit"
-                variant="primary"
-                className="w-full"
-                loading={loading}
+            {/* Mode Toggle */}
+            <div className="mb-6 flex rounded-lg bg-bg-secondary p-1">
+              <button
+                type="button"
+                onClick={() => { setMode('apikey'); setError(null); }}
+                className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
+                  mode === 'apikey'
+                    ? 'bg-primary text-white'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
               >
-                Get Started
-              </Button>
-            </form>
-
-            <p className="mt-6 text-center text-xs text-text-muted">
-              Your API key is stored securely in your system's keychain.
-              <br />
-              Get your key at{' '}
-              <a
-                href="https://console.anthropic.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
+                API Key
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('proxy'); setError(null); }}
+                className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
+                  mode === 'proxy'
+                    ? 'bg-primary text-white'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
               >
-                console.anthropic.com
-              </a>
-            </p>
+                Claude Subscription
+              </button>
+            </div>
+
+            {mode === 'apikey' ? (
+              <form onSubmit={handleApiKeySubmit} className="space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm text-text-secondary">
+                    Anthropic API Key
+                  </label>
+                  <Input
+                    type="password"
+                    placeholder="sk-ant-api03-..."
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    error={error || undefined}
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full"
+                  loading={loading}
+                >
+                  Get Started
+                </Button>
+
+                <p className="text-center text-xs text-text-muted">
+                  Your API key is stored securely in your system's keychain.
+                  <br />
+                  Get your key at{' '}
+                  <a
+                    href="https://console.anthropic.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    console.anthropic.com
+                  </a>
+                </p>
+              </form>
+            ) : (
+              <form onSubmit={handleProxySubmit} className="space-y-4">
+                {/* Proxy Status Indicator */}
+                <div className={`rounded-lg p-4 text-sm ${
+                  proxyStatus === 'online'
+                    ? 'bg-success/10 border border-success/30'
+                    : proxyStatus === 'offline'
+                    ? 'bg-error/10 border border-error/30'
+                    : 'bg-bg-tertiary'
+                }`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    {proxyStatus === 'checking' && (
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    )}
+                    {proxyStatus === 'online' && (
+                      <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
+                    )}
+                    {proxyStatus === 'offline' && (
+                      <div className="h-2 w-2 rounded-full bg-error" />
+                    )}
+                    {proxyStatus === 'unknown' && (
+                      <div className="h-2 w-2 rounded-full bg-gray-500" />
+                    )}
+                    <span className={`font-medium ${
+                      proxyStatus === 'online' ? 'text-success' :
+                      proxyStatus === 'offline' ? 'text-error' :
+                      'text-text-primary'
+                    }`}>
+                      {proxyStatus === 'checking' && 'Checking proxy...'}
+                      {proxyStatus === 'online' && 'Proxy is running'}
+                      {proxyStatus === 'offline' && 'Proxy not detected'}
+                      {proxyStatus === 'unknown' && 'Use your Claude Pro/Max subscription'}
+                    </span>
+                  </div>
+
+                  {proxyStatus === 'offline' ? (
+                    <div className="text-text-secondary space-y-2">
+                      <p>To use your Claude subscription, please start CLIProxyAPI:</p>
+                      <div className="bg-bg-primary rounded p-2 font-mono text-xs">
+                        <p className="text-text-muted"># Install (one-time)</p>
+                        <p>brew install cliproxyapi</p>
+                        <p className="text-text-muted mt-2"># Login (one-time)</p>
+                        <p>cli-proxy-api --claude-login</p>
+                        <p className="text-text-muted mt-2"># Start the proxy</p>
+                        <p>brew services start cliproxyapi</p>
+                      </div>
+                    </div>
+                  ) : proxyStatus === 'online' ? (
+                    <p className="text-text-secondary">
+                      CLIProxyAPI is ready. Click "Use Subscription" to continue.
+                    </p>
+                  ) : proxyStatus === 'unknown' ? (
+                    <p className="text-text-secondary">
+                      Run CLIProxyAPI locally to use your existing Claude subscription
+                      instead of paying per API token.
+                    </p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-text-secondary">
+                    Proxy URL
+                  </label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="http://localhost:8317"
+                      value={proxyUrl}
+                      onChange={(e) => setProxyUrl(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleCheckProxy}
+                      disabled={checking}
+                    >
+                      {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Check'}
+                    </Button>
+                  </div>
+                  {error && proxyStatus !== 'offline' && (
+                    <p className="mt-1 text-xs text-error">{error}</p>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full"
+                  loading={loading}
+                  disabled={proxyStatus === 'checking'}
+                >
+                  Use Subscription
+                </Button>
+
+                <p className="text-center text-xs text-text-muted">
+                  See{' '}
+                  <a
+                    href="https://github.com/router-for-me/CLIProxyAPI"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    CLIProxyAPI documentation
+                  </a>
+                  {' '}for detailed setup instructions.
+                </p>
+              </form>
+            )}
           </div>
         </Card>
       </motion.div>
@@ -363,21 +580,26 @@ const EmptyState: React.FC<{ onNewProject: () => void }> = ({ onNewProject }) =>
 
 /**
  * Root App Component
- * Handles initialization, API key setup, and routing to main app
+ * Handles initialization, API key/proxy setup, and routing to main app
  */
 const App: React.FC = () => {
   const { isInitialized, error } = useStoreInitializer();
-  const hasApiKey = useConfigStore((state) => state.hasApiKey);
+  const canProceed = useConfigStore((state) => state.canProceedWithoutApiKey);
+  const isProxyEnabled = useConfigStore((state) => state.isProxyEnabled);
   const checkApiKey = useConfigStore((state) => state.checkApiKey);
   const [showApiSetup, setShowApiSetup] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
-  // Check if API key setup is needed
+  // Check if API key/proxy setup is needed
   useEffect(() => {
-    if (isInitialized && !hasApiKey) {
-      setShowApiSetup(true);
+    if (isInitialized) {
+      // canProceed returns true if we have an API key OR proxy is enabled
+      const canProceedNow = canProceed();
+      if (!canProceedNow) {
+        setShowApiSetup(true);
+      }
     }
-  }, [isInitialized, hasApiKey]);
+  }, [isInitialized, canProceed, isProxyEnabled]);
 
   // Handle retry
   const handleRetry = () => {
@@ -385,8 +607,8 @@ const App: React.FC = () => {
     window.location.reload();
   };
 
-  // Handle API key setup complete
-  const handleApiKeyComplete = async () => {
+  // Handle API key/proxy setup complete
+  const handleSetupComplete = async () => {
     await checkApiKey();
     setShowApiSetup(false);
   };
@@ -401,9 +623,9 @@ const App: React.FC = () => {
     return <ErrorScreen error={error} onRetry={handleRetry} />;
   }
 
-  // Show API key setup
+  // Show API key/proxy setup
   if (showApiSetup) {
-    return <ApiKeySetup onComplete={handleApiKeyComplete} />;
+    return <ApiKeySetup onComplete={handleSetupComplete} />;
   }
 
   // Show main app

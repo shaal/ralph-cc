@@ -52,6 +52,10 @@ const mockApi = {
       completionThreshold: 3,
       eventThrottleMs: 16,
       maxRecentEvents: 100,
+      proxy: {
+        enabled: true, // Enable by default in browser mock for easy testing
+        url: 'http://localhost:8317',
+      },
     }),
     set: async (_config: any) => {},
     update: async (_key: string, _value: any) => {},
@@ -60,6 +64,17 @@ const mockApi = {
     setApiKey: async (_key: string) => {},
     hasApiKey: async () => true, // Pretend we have API key in browser
     getApiKey: async () => 'mock-api-key',
+  },
+  proxy: {
+    /**
+     * Check if the proxy is running and responding
+     * Returns { ok: true } if healthy, { ok: false, error: string } if not
+     */
+    checkHealth: async (url: string): Promise<{ ok: boolean; error?: string }> => {
+      // In browser mock, simulate a successful check
+      console.log(`[Mock] Checking proxy health at ${url}`);
+      return { ok: true };
+    },
   },
   on: (_channel: string, _callback: (data: any) => void) => {
     // No-op for browser

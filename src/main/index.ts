@@ -6,52 +6,99 @@ let mainWindow: BrowserWindow | null = null;
 
 // Mock data for initial development
 const mockProjects: any[] = [];
-const mockConfig = {
-  app: { theme: 'dark', language: 'en', autoUpdate: true, telemetry: false },
-  agent: {
-    defaultModel: 'claude-sonnet-4-20250514',
-    maxTokens: 8192,
-    maxIterations: 1000,
-    maxSubagentDepth: 3,
-    tools: ['bash', 'read', 'write', 'edit', 'glob', 'grep']
+
+// Config that matches the renderer's Config type from stores/types.ts
+const mockConfig: Record<string, any> = {
+  theme: 'dark',
+  defaultModel: 'claude-opus-4-5-20251101',
+  defaultTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
+  defaultBudgetLimit: 10,
+  defaultMaxIterations: 100,
+  circuitBreakerThreshold: 5,
+  completionThreshold: 3,
+  eventThrottleMs: 16,
+  maxRecentEvents: 100,
+  // Proxy configuration for using Claude subscription via CLIProxyAPI
+  proxy: {
+    enabled: false,
+    url: 'http://localhost:8317',
   },
-  safety: {
-    circuitBreaker: { maxConsecutiveFailures: 5, maxConsecutiveCompletions: 3, timeoutMinutes: 120 },
-    budget: { defaultLimit: 100, warningThreshold: 0.8 },
-    sandbox: { enabled: true, allowedPaths: ['./'], deniedCommands: ['rm -rf', 'sudo'] }
-  },
-  ui: {
-    graph: { physicsEnabled: true, animationSpeed: 1.0, nodeSize: 50, showLabels: true },
-    inspector: { defaultView: 'overview', autoScroll: true }
-  }
 };
 
 let hasApiKey = false;
 
 // Register IPC handlers
 function registerIpcHandlers(): void {
-  // Config handlers
+  // Config handlers - return data directly (not wrapped) to match store expectations
   ipcMain.handle('config:get', async () => {
-    return { success: true, data: mockConfig };
+    return mockConfig;
   });
 
-  ipcMain.handle('config:set', async (_event, key: string, value: any) => {
-    console.log(`Setting config: ${key} = ${value}`);
-    return { success: true };
+  ipcMain.handle('config:set', async (_event, config: any) => {
+    Object.assign(mockConfig, config);
+    console.log('Config updated:', Object.keys(config));
   });
 
-  ipcMain.handle('config:setApiKey', async (_event, key: string) => {
+  ipcMain.handle('config:update', async (_event, key: string, value: any) => {
+    mockConfig[key] = value;
+    console.log(`Config updated: ${key} =`, value);
+  });
+
+  // Keychain handlers
+  ipcMain.handle('keychain:setApiKey', async (_event, key: string) => {
     console.log('API key set (stored securely)');
     hasApiKey = true;
-    return { success: true };
   });
 
-  ipcMain.handle('config:hasApiKey', async () => {
-    return { success: true, data: hasApiKey };
+  ipcMain.handle('keychain:hasApiKey', async () => {
+    // If proxy is enabled, we don't need an API key
+    if (mockConfig.proxy?.enabled) {
+      return true;
+    }
+    return hasApiKey;
   });
 
-  ipcMain.handle('config:getApiKey', async () => {
-    return { success: true, data: hasApiKey ? 'sk-***' : null };
+  ipcMain.handle('keychain:getApiKey', async () => {
+    return hasApiKey ? 'sk-***' : null;
+  });
+
+  // Proxy handlers
+  ipcMain.handle('proxy:checkHealth', async (_event, url: string) => {
+    console.log(`Checking proxy health at ${url}...`);
+    try {
+      // Try to fetch from the proxy - use /v1/models as a health check endpoint
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+      const response = await fetch(`${url}/v1/models`, {
+        method: 'GET',
+        headers: {
+          'X-Api-Key': 'health-check', // Dummy key for health check
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok || response.status === 401) {
+        // 401 is actually good - it means the proxy is running but needs auth
+        // The proxy will handle real auth when we make actual requests
+        console.log('Proxy health check passed');
+        return { ok: true };
+      } else {
+        console.log(`Proxy returned status ${response.status}`);
+        return { ok: false, error: `Proxy returned status ${response.status}` };
+      }
+    } catch (error: any) {
+      console.log('Proxy health check failed:', error.message);
+      if (error.name === 'AbortError') {
+        return { ok: false, error: 'Connection timed out. Is CLIProxyAPI running?' };
+      }
+      if (error.code === 'ECONNREFUSED') {
+        return { ok: false, error: 'Connection refused. CLIProxyAPI is not running on this port.' };
+      }
+      return { ok: false, error: error.message || 'Failed to connect to proxy' };
+    }
   });
 
   // Project handlers

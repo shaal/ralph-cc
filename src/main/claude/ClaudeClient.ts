@@ -36,21 +36,70 @@ const DEFAULT_PRICING: ModelPricing = {
   'claude-haiku-3.5': { input: 0.80, output: 4.00 },
 };
 
+export interface ProxyConfig {
+  enabled: boolean;
+  url: string; // e.g., "http://localhost:8317"
+}
+
+export interface InitializeOptions {
+  apiKey?: string;
+  proxy?: ProxyConfig;
+}
+
 export class ClaudeClient {
   private client: Anthropic | null = null;
   private pricing: ModelPricing;
+  private proxyEnabled: boolean = false;
 
   constructor(pricing: ModelPricing = DEFAULT_PRICING) {
     this.pricing = pricing;
   }
 
   /**
-   * Initialize the Claude client with an API key
+   * Initialize the Claude client with an API key or proxy configuration
+   *
+   * When using a proxy (like CLIProxyAPI for Claude subscription):
+   * - Set proxy.enabled = true
+   * - Set proxy.url to the proxy address (default: http://localhost:8317)
+   * - apiKey can be any dummy value (it will be replaced by the proxy)
    */
-  async initialize(apiKey: string): Promise<void> {
-    this.client = new Anthropic({
-      apiKey,
-    });
+  async initialize(options: InitializeOptions): Promise<void> {
+    const { apiKey, proxy } = options;
+
+    this.proxyEnabled = proxy?.enabled ?? false;
+
+    if (this.proxyEnabled && proxy?.url) {
+      // Using proxy mode (e.g., CLIProxyAPI for Claude subscription)
+      // The proxy will replace the API key with OAuth token
+      this.client = new Anthropic({
+        apiKey: apiKey || 'sk-proxy-dummy-key', // Dummy key, proxy replaces it
+        baseURL: proxy.url,
+      });
+      console.log(`ClaudeClient initialized with proxy: ${proxy.url}`);
+    } else if (apiKey) {
+      // Direct API key mode
+      this.client = new Anthropic({
+        apiKey,
+      });
+      console.log('ClaudeClient initialized with API key');
+    } else {
+      throw new Error('Either apiKey or proxy configuration is required');
+    }
+  }
+
+  /**
+   * Legacy initialize method for backward compatibility
+   * @deprecated Use initialize(options) instead
+   */
+  async initializeWithKey(apiKey: string): Promise<void> {
+    return this.initialize({ apiKey });
+  }
+
+  /**
+   * Check if proxy mode is enabled
+   */
+  isProxyMode(): boolean {
+    return this.proxyEnabled;
   }
 
   /**

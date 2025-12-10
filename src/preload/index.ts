@@ -42,14 +42,33 @@ const api = {
   // ========================================
   config: {
     get: () => ipcRenderer.invoke('config:get'),
-    set: (key: string, value: unknown) => ipcRenderer.invoke('config:set', key, value),
+    set: (config: unknown) => ipcRenderer.invoke('config:set', config),
+    update: (key: string, value: unknown) => ipcRenderer.invoke('config:update', key, value),
     setTheme: (theme: 'light' | 'dark' | 'system') =>
       ipcRenderer.invoke('config:setTheme', theme),
     reset: () => ipcRenderer.invoke('config:reset'),
-    setApiKey: (key: string) => ipcRenderer.invoke('config:setApiKey', key),
-    getApiKey: () => ipcRenderer.invoke('config:getApiKey'),
-    hasApiKey: () => ipcRenderer.invoke('config:hasApiKey'),
-    deleteApiKey: () => ipcRenderer.invoke('config:deleteApiKey'),
+  },
+
+  // ========================================
+  // Keychain APIs (secure API key storage)
+  // ========================================
+  keychain: {
+    setApiKey: (key: string) => ipcRenderer.invoke('keychain:setApiKey', key),
+    getApiKey: () => ipcRenderer.invoke('keychain:getApiKey'),
+    hasApiKey: () => ipcRenderer.invoke('keychain:hasApiKey'),
+    deleteApiKey: () => ipcRenderer.invoke('keychain:deleteApiKey'),
+  },
+
+  // ========================================
+  // Proxy APIs (CLIProxyAPI for Claude subscription)
+  // ========================================
+  proxy: {
+    /**
+     * Check if the proxy is running and healthy
+     * @param url - The proxy URL to check (e.g., "http://localhost:8317")
+     * @returns { ok: boolean, error?: string }
+     */
+    checkHealth: (url: string) => ipcRenderer.invoke('proxy:checkHealth', url),
   },
 
   // ========================================

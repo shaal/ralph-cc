@@ -103,6 +103,13 @@ export interface Config {
   completionThreshold: number;
   eventThrottleMs: number;
   maxRecentEvents: number;
+  // Proxy configuration for using Claude subscription
+  proxy: ProxyConfig;
+}
+
+export interface ProxyConfig {
+  enabled: boolean;
+  url: string; // e.g., "http://localhost:8317"
 }
 
 // Event types

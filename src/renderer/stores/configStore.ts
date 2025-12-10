@@ -17,10 +17,14 @@ interface ConfigState {
   setApiKey: (key: string) => Promise<void>;
   checkApiKey: () => Promise<boolean>;
   resetConfig: () => Promise<void>;
+  setProxyEnabled: (enabled: boolean) => Promise<void>;
+  setProxyUrl: (url: string) => Promise<void>;
 
   // Selectors
   getConfigValue: <K extends keyof Config>(key: K) => Config[K] | undefined;
   isConfigLoaded: () => boolean;
+  isProxyEnabled: () => boolean;
+  canProceedWithoutApiKey: () => boolean;
 }
 
 const DEFAULT_CONFIG: Config = {
@@ -33,6 +37,11 @@ const DEFAULT_CONFIG: Config = {
   completionThreshold: 3,
   eventThrottleMs: 16, // ~60fps
   maxRecentEvents: 100,
+  // Proxy configuration - use CLIProxyAPI for Claude subscription
+  proxy: {
+    enabled: false,
+    url: 'http://localhost:8317',
+  },
 };
 
 export const useConfigStore = create<ConfigState>()(
@@ -127,6 +136,38 @@ export const useConfigStore = create<ConfigState>()(
         }
       },
 
+      setProxyEnabled: async (enabled) => {
+        try {
+          const currentProxy = get().config?.proxy || DEFAULT_CONFIG.proxy;
+          const newProxy = { ...currentProxy, enabled };
+          await getApi().config.update('proxy', newProxy);
+          set((state) => {
+            if (state.config) {
+              state.config.proxy = newProxy;
+            }
+          });
+        } catch (error) {
+          set({ error: error as Error });
+          throw error;
+        }
+      },
+
+      setProxyUrl: async (url) => {
+        try {
+          const currentProxy = get().config?.proxy || DEFAULT_CONFIG.proxy;
+          const newProxy = { ...currentProxy, url };
+          await getApi().config.update('proxy', newProxy);
+          set((state) => {
+            if (state.config) {
+              state.config.proxy = newProxy;
+            }
+          });
+        } catch (error) {
+          set({ error: error as Error });
+          throw error;
+        }
+      },
+
       // Selectors
       getConfigValue: (key) => {
         const { config } = get();
@@ -135,6 +176,17 @@ export const useConfigStore = create<ConfigState>()(
 
       isConfigLoaded: () => {
         return get().config !== null;
+      },
+
+      isProxyEnabled: () => {
+        const { config } = get();
+        return config?.proxy?.enabled ?? false;
+      },
+
+      // Returns true if we can skip API key setup (proxy mode or has key)
+      canProceedWithoutApiKey: () => {
+        const { config, hasApiKey } = get();
+        return hasApiKey || (config?.proxy?.enabled ?? false);
       },
     })),
     { name: 'ConfigStore' }
