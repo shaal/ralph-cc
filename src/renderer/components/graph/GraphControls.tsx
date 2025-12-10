@@ -13,7 +13,7 @@
 import React, { useState } from 'react';
 import { useReactFlow } from '@xyflow/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AgentStatus } from '../../main/database/types';
+import { AgentStatus } from '../../types';
 
 interface GraphControlsProps {
   layoutType: 'hierarchical' | 'radial' | 'force';

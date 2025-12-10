@@ -14,9 +14,10 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
 } from '@xyflow/react';
-import { Agent, AgentStatus } from '../../main/database/types';
+import { DBAgent as Agent, AgentStatus } from '../types';
+import { getApi } from '../stores/api';
 
-export interface AgentNodeData {
+export interface AgentNodeData extends Record<string, unknown> {
   id: string;
   name: string;
   status: AgentStatus;
@@ -149,86 +150,72 @@ export const useAgentGraph = (projectId: string) => {
 
   // Load initial agents
   useEffect(() => {
-    // TODO: Replace with actual API call when IPC is ready
-    // window.api.agent.getByProject(projectId).then(setAgents);
-
-    // Mock data for now
-    const mockAgents: Agent[] = [
-      {
-        id: 'agent-1',
-        project_id: projectId,
-        parent_id: null,
-        name: 'Main Agent',
-        status: AgentStatus.WORKING,
-        config: '{}',
-        current_task: 'Analyzing codebase structure',
-        total_tokens: 15420,
-        total_cost: 0.0234,
-        iteration_count: 3,
-        depth: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 'agent-2',
-        project_id: projectId,
-        parent_id: 'agent-1',
-        name: 'Research Agent',
-        status: AgentStatus.COMPLETED,
-        config: '{}',
-        current_task: null,
-        total_tokens: 8230,
-        total_cost: 0.0124,
-        iteration_count: 2,
-        depth: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 'agent-3',
-        project_id: projectId,
-        parent_id: 'agent-1',
-        name: 'Implementation Agent',
-        status: AgentStatus.WORKING,
-        config: '{}',
-        current_task: 'Creating React components',
-        total_tokens: 12100,
-        total_cost: 0.0182,
-        iteration_count: 4,
-        depth: 1,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: 'agent-4',
-        project_id: projectId,
-        parent_id: 'agent-3',
-        name: 'Test Agent',
-        status: AgentStatus.IDLE,
-        config: '{}',
-        current_task: 'Waiting for implementation',
-        total_tokens: 1200,
-        total_cost: 0.0018,
-        iteration_count: 1,
-        depth: 2,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ];
-
-    setAgents(mockAgents);
+    const loadAgents = async () => {
+      const api = getApi();
+      const agentList = await api.agent.list(projectId);
+      // Map database format to Agent type
+      const mappedAgents = agentList.map((a: any) => ({
+        id: a.id,
+        project_id: a.project_id,
+        parent_id: a.parent_id,
+        name: a.name,
+        status: a.status,
+        config: typeof a.config === 'string' ? a.config : JSON.stringify(a.config),
+        current_task: a.current_task,
+        total_tokens: a.total_tokens || 0,
+        total_cost: a.total_cost || 0,
+        iteration_count: a.iteration_count || 0,
+        depth: a.depth || 0,
+        created_at: a.created_at,
+        updated_at: a.updated_at,
+      }));
+      setAgents(mappedAgents);
+    };
+    loadAgents();
   }, [projectId]);
 
   // Subscribe to real-time agent updates
   useEffect(() => {
-    // TODO: Subscribe to agent events via IPC
-    // const unsubscribe = window.api.events.subscribe('agent_updated', (event) => {
-    //   if (event.data.projectId === projectId) {
-    //     // Update specific agent in state
-    //   }
-    // });
-    //
-    // return unsubscribe;
+    const api = getApi();
+
+    // Re-load agents when a new one is created
+    const unsubscribeCreated = api.onEvent('agent_created', (event: any) => {
+      if (event.data?.projectId === projectId) {
+        // Reload all agents to ensure we have the latest data
+        const loadAgents = async () => {
+          const agentList = await api.agent.list(projectId);
+          const mappedAgents = agentList.map((a: any) => ({
+            id: a.id,
+            project_id: a.project_id,
+            parent_id: a.parent_id,
+            name: a.name,
+            status: a.status,
+            config: typeof a.config === 'string' ? a.config : JSON.stringify(a.config),
+            current_task: a.current_task,
+            total_tokens: a.total_tokens || 0,
+            total_cost: a.total_cost || 0,
+            iteration_count: a.iteration_count || 0,
+            depth: a.depth || 0,
+            created_at: a.created_at,
+            updated_at: a.updated_at,
+          }));
+          setAgents(mappedAgents);
+        };
+        loadAgents();
+      }
+    });
+
+    // Update agent status in real-time
+    const unsubscribeUpdated = api.onEvent('agent_status_changed', (event: any) => {
+      setAgents(prev => prev.map(a =>
+        a.id === event.data?.agentId ? { ...a, status: event.data.newStatus } : a
+      ));
+    });
+
+    return () => {
+      unsubscribeCreated();
+      unsubscribeUpdated();
+    };
   }, [projectId]);
 
   // Rebuild nodes and edges when agents or layout changes
@@ -242,7 +229,7 @@ export const useAgentGraph = (projectId: string) => {
 
   // Handle node changes (position, selection, etc.)
   const onNodesChange: OnNodesChange = useCallback((changes) => {
-    setNodes((nds) => applyNodeChanges(changes, nds));
+    setNodes((nds) => applyNodeChanges(changes, nds) as Node<AgentNodeData>[]);
   }, []);
 
   // Handle edge changes

@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { OutputType } from '../../types';
+import { getApi } from '../../stores/api';
 
 interface Output {
   id: string;
@@ -148,17 +149,26 @@ export const OutputsView: React.FC<OutputsViewProps> = ({ projectId }) => {
 
   useEffect(() => {
     loadOutputs();
+
+    const api = getApi();
+    const unsubscribe = api.onEvent('output_created', (event: any) => {
+      if (event.data?.projectId === projectId) {
+        loadOutputs();
+      }
+    });
+
+    return () => unsubscribe();
   }, [projectId]);
 
   const loadOutputs = async () => {
     try {
       setLoading(true);
-      // This would call window.api.outputs.list(projectId)
-      // For now, we'll use mock data
-      const mockOutputs: Output[] = [];
-      setOutputs(mockOutputs);
+      const api = getApi();
+      const outputList = await api.project.getOutputs(projectId);
+      setOutputs(outputList || []);
     } catch (err) {
       console.error('Failed to load outputs:', err);
+      setOutputs([]);
     } finally {
       setLoading(false);
     }

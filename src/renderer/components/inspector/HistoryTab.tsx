@@ -2,8 +2,8 @@
  * Conversation history tab with message list
  */
 import React, { useState } from 'react';
-import type { AgentHistoryWithParsed } from '../../../main/database/types';
-import { MessageRole } from '../../../main/database/types';
+import type { AgentHistoryWithParsed } from '../../types';
+import { MessageRole } from '../../types';
 
 interface HistoryTabProps {
   history: AgentHistoryWithParsed[];

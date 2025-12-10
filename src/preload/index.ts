@@ -31,6 +31,7 @@ const api = {
   agent: {
     get: (id: string) => ipcRenderer.invoke('agent:get', id),
     list: (projectId: string) => ipcRenderer.invoke('agent:list', projectId),
+    getChildren: (parentId: string) => ipcRenderer.invoke('agent:children', parentId),
     getHistory: (id: string, options?: unknown) => ipcRenderer.invoke('agent:history', id, options),
     getOutputs: (id: string) => ipcRenderer.invoke('agent:outputs', id),
     pause: (id: string) => ipcRenderer.invoke('agent:pause', id),

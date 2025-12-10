@@ -12,7 +12,7 @@
 import React from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
 import { motion } from 'framer-motion';
-import { AgentStatus } from '../../main/database/types';
+import { AgentStatus } from '../../types';
 import { AgentNodeData } from '../../hooks/useAgentGraph';
 
 // Status color mappings

@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { getApi } from '../stores/api';
+import type { Project, ProjectSettings } from '../types';
 
 export interface BudgetAlert {
   id: string;
@@ -41,6 +43,11 @@ export const useBudgetAlert = (options: UseBudgetAlertOptions = {}): UseBudgetAl
   const [alerts, setAlerts] = useState<BudgetAlert[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
+  const handleBudgetWarning = (event: any) => {
+    // Trigger immediate budget check when warning event received
+    checkBudgets();
+  };
+
   useEffect(() => {
     // Load dismissed alerts from localStorage
     const stored = localStorage.getItem('dismissedBudgetAlerts');
@@ -56,31 +63,50 @@ export const useBudgetAlert = (options: UseBudgetAlertOptions = {}): UseBudgetAl
     checkBudgets();
 
     // Subscribe to budget warning events
-    // In production: window.api.events.subscribe('budget_warning', handleBudgetWarning);
+    const api = getApi();
+    const unsubscribe = api.onEvent('budget_warning', handleBudgetWarning);
     const interval = setInterval(checkBudgets, 10000); // Check every 10 seconds
 
     return () => {
       clearInterval(interval);
-      // In production: window.api.events.unsubscribe('budget_warning', handleBudgetWarning);
+      unsubscribe();
     };
   }, [projectId, warningThreshold, criticalThreshold]);
 
   const checkBudgets = async () => {
     try {
       // Fetch projects and their cost data
-      // In production: const projects = await window.api.project.list();
-      const projects = await mockFetchProjectBudgets();
+      const api = getApi();
+      const dbProjects = await api.project.list();
 
       const newAlerts: BudgetAlert[] = [];
 
-      for (const project of projects) {
+      for (const dbProject of dbProjects) {
         // Filter by projectId if specified
-        if (projectId && project.id !== projectId) {
+        if (projectId && dbProject.id !== projectId) {
           continue;
         }
 
-        const percentageUsed = (project.totalCost / project.budget) * 100;
-        const budgetRemaining = project.budget - project.totalCost;
+        // Parse settings and get budget limit (with defaults)
+        let settings: ProjectSettings | null = null;
+        try {
+          settings = typeof dbProject.settings === 'string'
+            ? JSON.parse(dbProject.settings)
+            : dbProject.settings;
+        } catch (err) {
+          console.error(`Error parsing settings for project ${dbProject.id}:`, err);
+        }
+
+        const totalCost = dbProject.cost_total ?? 0;
+        const budgetLimit = settings?.budgetLimit ?? 0;
+
+        // Skip if no budget is set
+        if (budgetLimit <= 0) {
+          continue;
+        }
+
+        const percentageUsed = (totalCost / budgetLimit) * 100;
+        const budgetRemaining = budgetLimit - totalCost;
 
         // Check if alert should be created
         let level: 'warning' | 'critical' | null = null;
@@ -88,14 +114,14 @@ export const useBudgetAlert = (options: UseBudgetAlertOptions = {}): UseBudgetAl
 
         if (percentageUsed >= criticalThreshold) {
           level = 'critical';
-          message = `Critical: ${project.name} has used ${percentageUsed.toFixed(1)}% of its budget ($${budgetRemaining.toFixed(2)} remaining)`;
+          message = `Critical: ${dbProject.name} has used ${percentageUsed.toFixed(1)}% of its budget ($${budgetRemaining.toFixed(2)} remaining)`;
         } else if (percentageUsed >= warningThreshold) {
           level = 'warning';
-          message = `Warning: ${project.name} has used ${percentageUsed.toFixed(1)}% of its budget ($${budgetRemaining.toFixed(2)} remaining)`;
+          message = `Warning: ${dbProject.name} has used ${percentageUsed.toFixed(1)}% of its budget ($${budgetRemaining.toFixed(2)} remaining)`;
         }
 
         if (level) {
-          const alertId = `${project.id}-${level}-${Math.floor(percentageUsed / 5) * 5}`;
+          const alertId = `${dbProject.id}-${level}-${Math.floor(percentageUsed / 5) * 5}`;
 
           // Check if alert is dismissed or snoozed
           if (dismissedIds.has(alertId)) {
@@ -104,11 +130,11 @@ export const useBudgetAlert = (options: UseBudgetAlertOptions = {}): UseBudgetAl
 
           const alert: BudgetAlert = {
             id: alertId,
-            projectId: project.id,
-            projectName: project.name,
+            projectId: dbProject.id,
+            projectName: dbProject.name,
             level,
             budgetRemaining,
-            budgetTotal: project.budget,
+            budgetTotal: budgetLimit,
             percentageUsed,
             message,
             timestamp: new Date(),
@@ -231,28 +257,4 @@ function playAlertSound() {
   } catch (err) {
     console.error('Error playing alert sound:', err);
   }
-}
-
-// Mock data function
-async function mockFetchProjectBudgets(): Promise<any[]> {
-  return [
-    {
-      id: 'proj-1',
-      name: 'Web Scraper',
-      totalCost: 42.50,
-      budget: 50.0,
-    },
-    {
-      id: 'proj-2',
-      name: 'Data Analysis',
-      totalCost: 28.30,
-      budget: 30.0,
-    },
-    {
-      id: 'proj-3',
-      name: 'API Integration',
-      totalCost: 15.67,
-      budget: 40.0,
-    },
-  ];
 }

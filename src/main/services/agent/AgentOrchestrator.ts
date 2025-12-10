@@ -7,6 +7,7 @@ import type { Agent, AgentLoopConfig } from '../ralph/RalphLoop';
 import type { Message } from '../../claude/types';
 import { EventBus, getEventBus } from '../EventBus';
 import { v4 as uuidv4 } from 'uuid';
+import { AgentRepository } from '../../database/repositories/AgentRepository';
 
 export interface CreateAgentParams {
   projectId: string;
@@ -37,6 +38,7 @@ export class AgentOrchestrator {
   private agents: Map<string, AgentState> = new Map();
   private eventBus: EventBus;
   private defaultConfig: AgentLoopConfig;
+  private agentRepo: AgentRepository;
 
   constructor(
     defaultConfig: AgentLoopConfig,
@@ -44,6 +46,7 @@ export class AgentOrchestrator {
   ) {
     this.defaultConfig = defaultConfig;
     this.eventBus = eventBus || getEventBus();
+    this.agentRepo = new AgentRepository();
 
     // Subscribe to agent events to update state
     this.subscribeToEvents();
@@ -338,19 +341,66 @@ export class AgentOrchestrator {
       throw new Error(`Agent not found: ${agentId}`);
     }
 
-    // TODO: Integrate with database service
-    // await this.database.saveAgent(agent);
+    // Map AgentState status to database AgentStatus
+    const statusMap: Record<AgentState['status'], string> = {
+      'created': 'created',
+      'running': 'working',
+      'paused': 'paused',
+      'stopped': 'idle',
+      'error': 'failed',
+      'completed': 'completed',
+    };
+
+    // Update the agent in the database
+    this.agentRepo.update(agentId, {
+      name: agent.name,
+      status: statusMap[agent.status] as any,
+      config: agent.config,
+      current_task: agent.history.length > 0 ? 'Processing' : null,
+      total_tokens: agent.metadata.totalTokens,
+      total_cost: agent.metadata.totalCost,
+      iteration_count: agent.metadata.iterationCount,
+    });
   }
 
   /**
    * Restore agent state (from persistence)
    */
   async restoreState(agentId: string): Promise<Agent> {
-    // TODO: Integrate with database service
-    // const state = await this.database.loadAgent(agentId);
-    // this.agents.set(agentId, state);
-    // return this.toAgent(state);
+    const dbAgent = this.agentRepo.findByIdWithConfig(agentId);
+    if (!dbAgent) {
+      throw new Error(`Agent not found in database: ${agentId}`);
+    }
 
-    throw new Error('Not implemented: restoreState requires database integration');
+    // Map database AgentStatus to AgentState status
+    const statusMap: Record<string, AgentState['status']> = {
+      'created': 'created',
+      'idle': 'stopped',
+      'working': 'running',
+      'paused': 'paused',
+      'completed': 'completed',
+      'failed': 'error',
+    };
+
+    const agentState: AgentState = {
+      id: dbAgent.id,
+      projectId: dbAgent.project_id,
+      parentId: dbAgent.parent_id || undefined,
+      name: dbAgent.name || `Agent-${dbAgent.id.slice(0, 8)}`,
+      status: statusMap[dbAgent.status] || 'created',
+      config: dbAgent.config as AgentLoopConfig,
+      history: [], // History will be loaded separately if needed
+      outputs: [],
+      metadata: {
+        createdAt: new Date(dbAgent.created_at).getTime(),
+        updatedAt: dbAgent.updated_at ? new Date(dbAgent.updated_at).getTime() : Date.now(),
+        totalTokens: dbAgent.total_tokens,
+        totalCost: dbAgent.total_cost,
+        iterationCount: dbAgent.iteration_count,
+      },
+    };
+
+    this.agents.set(agentId, agentState);
+    return this.toAgent(agentState);
   }
 }

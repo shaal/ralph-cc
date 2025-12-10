@@ -27,7 +27,7 @@ import { ToolNode } from './ToolNode';
 import { ConnectionEdge } from './ConnectionEdge';
 import { GraphControls } from './GraphControls';
 import { AgentMiniMap, getNodeColor } from './AgentMiniMap';
-import { AgentStatus } from '../../main/database/types';
+import { AgentStatus } from '../../types';
 
 interface AgentGraphProps {
   projectId: string;

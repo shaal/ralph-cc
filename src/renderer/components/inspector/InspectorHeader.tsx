@@ -2,8 +2,8 @@
  * Inspector header with agent info and controls
  */
 import React from 'react';
-import type { AgentWithConfig } from '../../../main/database/types';
-import { AgentStatus } from '../../../main/database/types';
+import type { AgentWithConfig } from '../../types';
+import { AgentStatus } from '../../types';
 
 interface InspectorHeaderProps {
   agent: AgentWithConfig;

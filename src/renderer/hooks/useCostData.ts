@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getApi } from '../stores/api';
 
 export interface CostSummary {
   totalCost: number;
@@ -89,10 +90,41 @@ export const useCostData = (timeRange: '1h' | '24h' | '7d' | '30d' = '24h'): Use
       };
       const since = new Date(now.getTime() - rangeMs[timeRange]);
 
-      // Fetch all projects and agents (mock data for now - will be replaced with actual IPC calls)
-      // In production: const projects = await window.api.project.list();
-      const projects = await mockFetchProjects();
-      const agents = await mockFetchAgents();
+      // Fetch all projects and agents from database
+      const api = getApi();
+      const projectsRaw: any[] = await api.project.list();
+
+      // Map database fields to expected format
+      const projects = projectsRaw.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        status: p.status,
+        totalCost: p.cost_total || 0,
+        budget: p.settings ? (JSON.parse(p.settings).budgetLimit || 0) : 0,
+        createdAt: p.created_at,
+      }));
+
+      // Fetch agents for all projects
+      const allAgents: any[] = [];
+      for (const project of projectsRaw) {
+        if (project && project.id) {
+          const projectAgents = await api.agent.list(project.id);
+          allAgents.push(...projectAgents);
+        }
+      }
+
+      // Map agent database fields to expected format
+      const agents = allAgents.map((a: any) => ({
+        id: a.id,
+        name: a.name,
+        projectId: a.project_id,
+        status: a.status,
+        tokensIn: 0, // Will be calculated from agent_history in future
+        tokensOut: 0, // Will be calculated from agent_history in future
+        totalCost: a.total_cost || 0,
+        createdAt: a.created_at,
+        updatedAt: a.updated_at || a.created_at,
+      }));
 
       // Calculate summary
       const totalCost = projects.reduce((sum, p) => sum + (p.totalCost || 0), 0);
@@ -210,12 +242,17 @@ export const useCostData = (timeRange: '1h' | '24h' | '7d' | '30d' = '24h'): Use
     fetchCostData();
 
     // Subscribe to real-time cost updates
-    // In production: window.api.events.subscribe('cost_updated', fetchCostData);
-    const interval = setInterval(fetchCostData, 5000); // Refresh every 5 seconds
+    const api = getApi();
+    const unsubscribe = api.onEvent('cost_updated', fetchCostData);
+
+    // Also subscribe to agent status changes which might affect cost calculations
+    const unsubscribeAgentStatus = api.onEvent('agent_status_changed', fetchCostData);
+    const unsubscribeProjectStatus = api.onEvent('project_status_changed', fetchCostData);
 
     return () => {
-      clearInterval(interval);
-      // In production: window.api.events.unsubscribe('cost_updated', fetchCostData);
+      unsubscribe();
+      unsubscribeAgentStatus();
+      unsubscribeProjectStatus();
     };
   }, [timeRange]);
 
@@ -256,7 +293,7 @@ function calculateCostBetween(agents: any[], start: Date, end: Date): number {
 }
 
 function generateCostHistory(
-  agents: any[],
+  _agents: any[], // Currently unused - will be used when we query agent_history table
   since: Date,
   now: Date,
   timeRange: string
@@ -283,7 +320,9 @@ function generateCostHistory(
   return history;
 }
 
-// Mock data functions (replace with actual IPC calls)
+// Mock data functions - DEPRECATED - Now using real IPC calls
+// These functions are kept for reference but are no longer used
+/*
 async function mockFetchProjects(): Promise<any[]> {
   return [
     {
@@ -372,3 +411,4 @@ async function mockFetchAgents(): Promise<any[]> {
     },
   ];
 }
+*/

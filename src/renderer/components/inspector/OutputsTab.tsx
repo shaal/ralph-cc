@@ -2,8 +2,8 @@
  * Outputs tab with file tree and preview
  */
 import React, { useState, useEffect } from 'react';
-import type { Output } from '../../../main/database/types';
-import { OutputType } from '../../../main/database/types';
+import type { Output } from '../../types';
+import { OutputType } from '../../types';
 
 interface OutputsTabProps {
   agentId: string;

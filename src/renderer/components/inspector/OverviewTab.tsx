@@ -2,8 +2,8 @@
  * Overview tab with metrics and activity
  */
 import React, { useState, useEffect } from 'react';
-import type { AgentWithConfig } from '../../../main/database/types';
-import { AgentStatus } from '../../../main/database/types';
+import type { AgentWithConfig } from '../../types';
+import { AgentStatus } from '../../types';
 
 interface OverviewTabProps {
   agent: AgentWithConfig;

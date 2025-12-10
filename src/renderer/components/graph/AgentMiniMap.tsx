@@ -10,7 +10,7 @@
 
 import React from 'react';
 import { MiniMap, Node } from '@xyflow/react';
-import { AgentStatus } from '../../main/database/types';
+import { AgentStatus } from '../../types';
 import { AgentNodeData } from '../../hooks/useAgentGraph';
 
 // Node color based on agent status

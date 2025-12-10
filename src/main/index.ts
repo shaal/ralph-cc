@@ -1,5 +1,5 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import * as fs from 'fs';
 
@@ -482,13 +482,19 @@ function registerIpcHandlers(): void {
       // Update project status
       projectRepo.updateStatus(id, 'running');
 
+      // Use the directory containing the prompt file as the working directory
+      const promptDir = dirname(project.prompt_path);
+      const workingDirectory = promptDir && promptDir !== '.' && fs.existsSync(promptDir)
+        ? promptDir
+        : process.cwd();
+
       // Start the Ralph loop
       await ralphEngine.startLoop(
         {
           id: project.id,
           name: project.name,
           promptPath: project.prompt_path,
-          workingDirectory: process.cwd(), // TODO: Use project-specific directory
+          workingDirectory,
           status: 'running',
           settings: project.settings || {},
         },
@@ -573,10 +579,10 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('project:outputs', async (_event, id: string, _options?: any) => {
+  ipcMain.handle('project:outputs', async (_event, id: string, options?: any) => {
     try {
-      // TODO: Implement outputs repository query
-      return [];
+      const { outputRepository } = await import('./database/repositories');
+      return outputRepository.findByProjectId(id, options);
     } catch (error: any) {
       console.error('[Project] Outputs error:', error);
       return [];
@@ -603,6 +609,16 @@ function registerIpcHandlers(): void {
     } catch (error: any) {
       console.error('[Agent] Get error:', error);
       return null;
+    }
+  });
+
+  ipcMain.handle('agent:children', async (_event, parentId: string) => {
+    try {
+      const children = agentRepo.findByParentId(parentId);
+      return children;
+    } catch (error: any) {
+      console.error('[Agent] Children error:', error);
+      return [];
     }
   });
 

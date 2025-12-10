@@ -2,7 +2,7 @@
  * Hook for fetching and subscribing to agent data
  */
 import { useState, useEffect } from 'react';
-import type { Agent, AgentHistory, AgentWithConfig, AgentHistoryWithParsed } from '../../main/database/types';
+import type { DBAgent as Agent, AgentHistory, AgentWithConfig, AgentHistoryWithParsed } from '../types';
 
 export interface UseAgentResult {
   agent: AgentWithConfig | null;

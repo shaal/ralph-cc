@@ -2,7 +2,7 @@
  * Configuration tab showing agent settings
  */
 import React from 'react';
-import type { AgentWithConfig } from '../../../main/database/types';
+import type { AgentWithConfig } from '../../types';
 
 interface ConfigTabProps {
   agent: AgentWithConfig;

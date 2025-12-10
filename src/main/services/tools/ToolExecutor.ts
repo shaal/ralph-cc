@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { glob } from 'glob';
 
 const execAsync = promisify(exec);
 
@@ -243,9 +244,59 @@ export class ToolExecutor {
     const pattern = input.pattern as string;
     const searchPath = (input.path as string) || context.workingDirectory;
 
-    // This is a simplified implementation - in production, use a proper glob library
-    // For now, return a placeholder
-    return `Glob search not fully implemented yet. Pattern: ${pattern}, Path: ${searchPath}`;
+    if (!pattern) {
+      throw new Error('Pattern is required for glob search');
+    }
+
+    try {
+      // Resolve absolute search path
+      const absoluteSearchPath = path.isAbsolute(searchPath)
+        ? searchPath
+        : path.join(context.workingDirectory, searchPath);
+
+      // Check if search path exists
+      if (!fs.existsSync(absoluteSearchPath)) {
+        throw new Error(`Search path not found: ${searchPath}`);
+      }
+
+      // Execute glob search
+      const matches = await glob(pattern, {
+        cwd: absoluteSearchPath,
+        absolute: false,
+        nodir: false,
+        dot: true, // Include hidden files
+        ignore: ['**/node_modules/**', '**/.git/**'], // Ignore common directories
+      });
+
+      if (matches.length === 0) {
+        return `No files found matching pattern: ${pattern}`;
+      }
+
+      // Get file stats and sort by modification time (newest first)
+      const filesWithStats = matches.map(file => {
+        const absolutePath = path.join(absoluteSearchPath, file);
+        try {
+          const stats = fs.statSync(absolutePath);
+          return {
+            path: file,
+            mtime: stats.mtime.getTime(),
+          };
+        } catch (error) {
+          // File might have been deleted, skip it
+          return null;
+        }
+      }).filter((item): item is { path: string; mtime: number } => item !== null);
+
+      // Sort by modification time (newest first)
+      filesWithStats.sort((a, b) => b.mtime - a.mtime);
+
+      // Return sorted file paths, one per line
+      return filesWithStats.map(item => item.path).join('\n');
+    } catch (error) {
+      throw new Error(
+        `Glob search failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /**
@@ -254,10 +305,141 @@ export class ToolExecutor {
   private async executeGrep(input: Record<string, unknown>, context: ToolContext): Promise<string> {
     const pattern = input.pattern as string;
     const searchPath = (input.path as string) || context.workingDirectory;
+    const caseInsensitive = (input['-i'] as boolean) || false;
+    const maxMatches = 1000; // Limit to prevent huge outputs
 
-    // This is a simplified implementation - in production, use ripgrep or similar
-    // For now, return a placeholder
-    return `Grep search not fully implemented yet. Pattern: ${pattern}, Path: ${searchPath}`;
+    if (!pattern) {
+      throw new Error('Pattern is required for grep search');
+    }
+
+    try {
+      // Resolve absolute search path
+      const absoluteSearchPath = path.isAbsolute(searchPath)
+        ? searchPath
+        : path.join(context.workingDirectory, searchPath);
+
+      // Check if search path exists
+      if (!fs.existsSync(absoluteSearchPath)) {
+        throw new Error(`Search path not found: ${searchPath}`);
+      }
+
+      // Create regex pattern
+      const flags = caseInsensitive ? 'i' : '';
+      const regex = new RegExp(pattern, flags);
+
+      const results: string[] = [];
+      let matchCount = 0;
+
+      // Check if path is a file or directory
+      const stats = fs.statSync(absoluteSearchPath);
+
+      if (stats.isFile()) {
+        // Search single file
+        matchCount = this.searchFileForPattern(absoluteSearchPath, regex, results, maxMatches);
+      } else if (stats.isDirectory()) {
+        // Recursively search directory
+        matchCount = this.searchDirectoryForPattern(absoluteSearchPath, regex, results, maxMatches);
+      } else {
+        throw new Error(`Invalid path type: ${searchPath}`);
+      }
+
+      if (results.length === 0) {
+        return `No matches found for pattern: ${pattern}`;
+      }
+
+      let output = results.join('\n');
+      if (matchCount >= maxMatches) {
+        output += `\n\n[Output truncated: ${maxMatches}+ matches found]`;
+      }
+
+      return output;
+    } catch (error) {
+      throw new Error(
+        `Grep search failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Search a single file for pattern matches
+   */
+  private searchFileForPattern(
+    filePath: string,
+    regex: RegExp,
+    results: string[],
+    maxMatches: number
+  ): number {
+    let matchCount = 0;
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const lines = content.split('\n');
+      const fileName = path.basename(filePath);
+
+      for (let i = 0; i < lines.length; i++) {
+        if (matchCount >= maxMatches) {
+          break;
+        }
+
+        const line = lines[i];
+        if (line && regex.test(line)) {
+          const lineNumber = i + 1;
+          // Truncate very long lines
+          const displayLine = line.length > 2000 ? line.substring(0, 2000) + '...' : line;
+          results.push(`${fileName}:${lineNumber}:${displayLine}`);
+          matchCount++;
+        }
+      }
+    } catch (error) {
+      // Skip files that can't be read (binary files, permission issues, etc.)
+    }
+
+    return matchCount;
+  }
+
+  /**
+   * Recursively search directory for pattern matches
+   */
+  private searchDirectoryForPattern(
+    dirPath: string,
+    regex: RegExp,
+    results: string[],
+    maxMatches: number
+  ): number {
+    let matchCount = 0;
+
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (matchCount >= maxMatches) {
+          break;
+        }
+
+        const fullPath = path.join(dirPath, entry.name);
+
+        // Skip common ignored directories
+        if (entry.isDirectory()) {
+          if (['node_modules', '.git', '.vscode', 'dist', 'build', 'coverage'].includes(entry.name)) {
+            continue;
+          }
+          matchCount += this.searchDirectoryForPattern(fullPath, regex, results, maxMatches - matchCount);
+        } else if (entry.isFile()) {
+          // Skip common binary and large file extensions
+          const skipExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.ico', '.pdf', '.zip', '.tar', '.gz', '.exe', '.dll', '.so', '.dylib'];
+          const ext = path.extname(entry.name).toLowerCase();
+          if (skipExtensions.includes(ext)) {
+            continue;
+          }
+
+          matchCount += this.searchFileForPattern(fullPath, regex, results, maxMatches - matchCount);
+        }
+      }
+    } catch (error) {
+      // Skip directories that can't be read (permission issues, etc.)
+    }
+
+    return matchCount;
   }
 
   /**

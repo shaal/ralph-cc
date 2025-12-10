@@ -33,13 +33,17 @@ const mockApi = {
     pause: async (_id: string) => {},
     resume: async (_id: string) => {},
     stop: async (_id: string) => {},
+    getOutputs: async (_id: string, _options?: any) => [],
   },
   agent: {
     list: async (_projectId?: string) => [],
     get: async (_id: string) => null,
-    history: async (_id: string) => [],
+    getChildren: async (_parentId: string) => [],
+    getHistory: async (_id: string, _options?: any) => [],
+    getOutputs: async (_id: string) => [],
     pause: async (_id: string) => {},
     resume: async (_id: string) => {},
+    stop: async (_id: string) => {},
   },
   config: {
     get: async () => ({

@@ -7,7 +7,7 @@
 
 import React, { useState } from 'react';
 import { AgentGraph } from './AgentGraph';
-import { Agent } from '../../main/database/types';
+import { DBAgent as Agent } from '../../types';
 
 /**
  * Example: Full-screen graph view
