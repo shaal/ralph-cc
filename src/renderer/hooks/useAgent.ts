@@ -76,7 +76,8 @@ export const useAgent = (agentId: string | null): UseAgentResult => {
     if (!agentId) return;
 
     const unsubscribe = window.api.onEvent('agent_status_changed', (event) => {
-      if (event.agentId === agentId && agent) {
+      // Note: agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === agentId && agent) {
         setAgent(prev => prev ? { ...prev, ...event.data } : null);
       }
     });
@@ -89,7 +90,8 @@ export const useAgent = (agentId: string | null): UseAgentResult => {
     if (!agentId) return;
 
     const unsubscribe = window.api.onEvent('agent_history_added', (event) => {
-      if (event.agentId === agentId) {
+      // Note: agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === agentId) {
         const newEntry: AgentHistoryWithParsed = {
           ...event.data,
           tool_calls: event.data.tool_calls || null,

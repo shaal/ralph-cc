@@ -38,7 +38,8 @@ export const useAgentStream = (agentId: string | null): UseAgentStreamResult => 
     }
 
     const unsubscribeOutput = window.api.onEvent('agent_output_chunk', (event) => {
-      if (event.agentId === agentId) {
+      // agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === agentId) {
         const newChunk: OutputChunk = {
           id: `${Date.now()}-${Math.random()}`,
           timestamp: new Date().toISOString(),
@@ -58,7 +59,8 @@ export const useAgentStream = (agentId: string | null): UseAgentStreamResult => 
     if (!agentId) return;
 
     const unsubscribeToolCall = window.api.onEvent('agent_tool_call', (event) => {
-      if (event.agentId === agentId) {
+      // agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === agentId) {
         const toolCallText = `[Tool Call: ${event.data.tool_name}]\n${JSON.stringify(event.data.input, null, 2)}`;
         const newChunk: OutputChunk = {
           id: `${Date.now()}-${Math.random()}`,
@@ -78,7 +80,8 @@ export const useAgentStream = (agentId: string | null): UseAgentStreamResult => 
     if (!agentId) return;
 
     const unsubscribeError = window.api.onEvent('agent_error', (event) => {
-      if (event.agentId === agentId) {
+      // agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === agentId) {
         const newChunk: OutputChunk = {
           id: `${Date.now()}-${Math.random()}`,
           timestamp: new Date().toISOString(),
@@ -98,13 +101,15 @@ export const useAgentStream = (agentId: string | null): UseAgentStreamResult => 
     if (!agentId) return;
 
     const unsubscribeStart = window.api.onEvent('agent_iteration_start', (event) => {
-      if (event.agentId === agentId) {
+      // agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === agentId) {
         setIsStreaming(true);
       }
     });
 
     const unsubscribeEnd = window.api.onEvent('agent_iteration_end', (event) => {
-      if (event.agentId === agentId) {
+      // agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === agentId) {
         setIsStreaming(false);
       }
     });

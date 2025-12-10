@@ -48,11 +48,12 @@ export const ProjectInspectorView: React.FC<ProjectInspectorViewProps> = ({
   // Subscribe to agent creation events
   useEffect(() => {
     const unsubscribe = window.api.onEvent('agent_created', (event) => {
-      if (event.projectId === projectId) {
+      // Note: projectId and agentId are inside event.data (from IPC forwarding)
+      if (event.data?.projectId === projectId) {
         fetchAgents(projectId);
         // Auto-select the new agent
-        if (event.agentId) {
-          setSelectedAgentId(event.agentId);
+        if (event.data?.id || event.data?.agentId) {
+          setSelectedAgentId(event.data?.id || event.data?.agentId);
         }
       }
     });
@@ -65,7 +66,8 @@ export const ProjectInspectorView: React.FC<ProjectInspectorViewProps> = ({
     if (!selectedAgentId) return;
 
     const unsubscribe = window.api.onEvent('agent_output_chunk', (event) => {
-      if (event.agentId === selectedAgentId && activeTab !== 'live') {
+      // Note: agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === selectedAgentId && activeTab !== 'live') {
         setHasNewOutput(true);
       }
     });

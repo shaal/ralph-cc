@@ -35,7 +35,8 @@ export const AgentInspector: React.FC<AgentInspectorProps> = ({ agentId, onClose
     if (!agentId) return;
 
     const unsubscribe = window.api.onEvent('agent_output_chunk', (event) => {
-      if (event.agentId === agentId && activeTab !== 'live') {
+      // Note: agentId is inside event.data (from IPC forwarding)
+      if (event.data?.agentId === agentId && activeTab !== 'live') {
         setHasNewOutput(true);
       }
     });
