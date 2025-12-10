@@ -69,6 +69,12 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
     const newValue = e.target.value;
     setLocalValue(newValue);
     setHasUnsavedChanges(true);
+
+    // When autoSave is disabled, call onChange immediately
+    // so the parent component gets the value in real-time
+    if (!autoSave) {
+      onChange(newValue);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -80,6 +86,11 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
       const newValue = localValue.substring(0, start) + '  ' + localValue.substring(end);
       setLocalValue(newValue);
       setHasUnsavedChanges(true);
+
+      // When autoSave is disabled, call onChange immediately
+      if (!autoSave) {
+        onChange(newValue);
+      }
 
       // Set cursor position after tab
       setTimeout(() => {

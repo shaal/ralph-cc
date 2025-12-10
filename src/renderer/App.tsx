@@ -465,20 +465,73 @@ const ApiKeySetup: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
  * The fully integrated Constellation UI
  */
 const MainApp: React.FC = () => {
+  // Project store
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId);
-  const selectedAgentId = useUIStore((state) => state.selectedAgentId);
-  const setSelectedAgentId = useUIStore((state) => state.setSelectedAgentId);
+  const selectProject = useProjectStore((state) => state.selectProject);
+  const projects = useProjectStore((state) => state.projects);
+  const createProject = useProjectStore((state) => state.createProject);
+
+  // UI store
   const activeTab = useUIStore((state) => state.activeTab);
   const inspectorOpen = useUIStore((state) => state.inspectorOpen);
-  const [showNewProject, setShowNewProject] = useState(false);
+  const setInspectorOpen = useUIStore((state) => state.setInspectorOpen);
+  const sidebarCollapsed = useUIStore((state) => state.sidebarCollapsed);
+  const setSidebarCollapsed = useUIStore((state) => state.setSidebarCollapsed);
+  const isCreateProjectModalOpen = useUIStore((state) => state.isCreateProjectModalOpen);
+  const openCreateProjectModal = useUIStore((state) => state.openCreateProjectModal);
+  const closeCreateProjectModal = useUIStore((state) => state.closeCreateProjectModal);
+  const isSettingsModalOpen = useUIStore((state) => state.isSettingsModalOpen);
+  const openSettingsModal = useUIStore((state) => state.openSettingsModal);
+  const closeSettingsModal = useUIStore((state) => state.closeSettingsModal);
+
+  // Selected agent for inspector
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+
+  // Create project items for sidebar
+  const projectItems = projects.map((project) => ({
+    id: project.id,
+    label: project.name,
+    icon: <Sparkles size={16} />,
+    active: project.id === selectedProjectId,
+    onClick: () => selectProject(project.id),
+  }));
+
+  // Handle create project
+  const handleCreateProject = async (input: { name: string; prompt: string; settings?: any }) => {
+    const project = await createProject({
+      name: input.name,
+      prompt: input.prompt,
+      settings: input.settings,
+    });
+    selectProject(project.id);
+    closeCreateProjectModal();
+  };
+
+  // Handle help click
+  const handleHelpClick = () => {
+    // Open help URL in external browser
+    window.open('https://github.com/router-for-me/CLIProxyAPI', '_blank');
+  };
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-background">
       <AppShell
         sidebar={
-          <Sidebar onNewProject={() => setShowNewProject(true)}>
-            <ProjectList onNewProject={() => setShowNewProject(true)} />
-          </Sidebar>
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onToggle={setSidebarCollapsed}
+            projectItems={projectItems}
+            navigationItems={[
+              {
+                id: 'new-project',
+                label: 'Create New Project',
+                icon: <Sparkles size={16} />,
+                onClick: openCreateProjectModal,
+              },
+            ]}
+            onSettingsClick={openSettingsModal}
+            onHelpClick={handleHelpClick}
+          />
         }
         header={<Header />}
         statusBar={<StatusBar />}
@@ -486,7 +539,10 @@ const MainApp: React.FC = () => {
           inspectorOpen && selectedAgentId ? (
             <AgentInspector
               agentId={selectedAgentId}
-              onClose={() => setSelectedAgentId(null)}
+              onClose={() => {
+                setSelectedAgentId(null);
+                setInspectorOpen(false);
+              }}
             />
           ) : undefined
         }
@@ -521,7 +577,7 @@ const MainApp: React.FC = () => {
               exit={{ opacity: 0 }}
               className="flex h-full items-center justify-center"
             >
-              <EmptyState onNewProject={() => setShowNewProject(true)} />
+              <EmptyState onNewProject={openCreateProjectModal} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -529,9 +585,23 @@ const MainApp: React.FC = () => {
 
       {/* New Project Dialog */}
       <NewProjectDialog
-        open={showNewProject}
-        onClose={() => setShowNewProject(false)}
+        isOpen={isCreateProjectModalOpen}
+        onClose={closeCreateProjectModal}
+        onCreate={handleCreateProject}
       />
+
+      {/* Settings Modal (placeholder) */}
+      {isSettingsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-[480px] p-6">
+            <h2 className="mb-4 text-xl font-bold text-text-primary">Settings</h2>
+            <p className="mb-4 text-text-secondary">Settings panel coming soon...</p>
+            <Button variant="primary" onClick={closeSettingsModal}>
+              Close
+            </Button>
+          </Card>
+        </div>
+      )}
 
       {/* Toast notifications */}
       <ToastContainer />

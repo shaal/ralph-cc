@@ -4,6 +4,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Project, UpdateProjectInput } from '../types';
+import { useProjectStore } from '../stores/projectStore';
+import { getApi } from '../stores/api';
 
 export interface UseProjectResult {
   project: Project | null;
@@ -18,9 +20,22 @@ export interface UseProjectResult {
 }
 
 export const useProject = (projectId: string | null): UseProjectResult => {
-  const [project, setProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Get project from the store first (for browser mock mode)
+  const projectFromStore = useProjectStore((state) =>
+    state.projects.find((p) => p.id === projectId) || null
+  );
+
+  const [project, setProject] = useState<Project | null>(projectFromStore);
+  const [loading, setLoading] = useState(!projectFromStore);
   const [error, setError] = useState<Error | null>(null);
+
+  // Update local state when store changes
+  useEffect(() => {
+    if (projectFromStore) {
+      setProject(projectFromStore);
+      setLoading(false);
+    }
+  }, [projectFromStore]);
 
   const refresh = useCallback(async () => {
     if (!projectId) {
@@ -29,10 +44,18 @@ export const useProject = (projectId: string | null): UseProjectResult => {
       return;
     }
 
+    // If we already have the project from the store, don't fetch again
+    if (projectFromStore) {
+      setProject(projectFromStore);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
-      const data = await window.api.project.get(projectId);
+      const api = getApi();
+      const data = await api.project.get(projectId);
       setProject(data);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load project'));
@@ -40,15 +63,17 @@ export const useProject = (projectId: string | null): UseProjectResult => {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, projectFromStore]);
 
   useEffect(() => {
     refresh();
 
     if (!projectId) return;
 
+    const api = getApi();
+
     // Subscribe to project updates
-    const unsubscribe = window.api.onEvent('project_updated', (event) => {
+    const unsubscribe = api.onEvent('project_updated', (event: any) => {
       if (event.data?.projectId === projectId) {
         setProject((prev) => {
           if (!prev) return prev;
@@ -58,7 +83,7 @@ export const useProject = (projectId: string | null): UseProjectResult => {
     });
 
     // Subscribe to status changes
-    const unsubscribeStatus = window.api.onEvent('project_status_changed', (event) => {
+    const unsubscribeStatus = api.onEvent('project_status_changed', (event: any) => {
       if (event.data?.projectId === projectId) {
         setProject((prev) => {
           if (!prev) return prev;
@@ -77,7 +102,8 @@ export const useProject = (projectId: string | null): UseProjectResult => {
     async (input: UpdateProjectInput) => {
       if (!projectId) return;
       try {
-        await window.api.project.update(projectId, input);
+        const api = getApi();
+        await api.project.update(projectId, input);
         await refresh();
       } catch (err) {
         setError(err instanceof Error ? err : new Error('Failed to update project'));
@@ -90,7 +116,8 @@ export const useProject = (projectId: string | null): UseProjectResult => {
   const start = useCallback(async () => {
     if (!projectId) return;
     try {
-      await window.api.project.start(projectId);
+      const api = getApi();
+      await api.project.start(projectId);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to start project'));
       throw err;
@@ -100,7 +127,8 @@ export const useProject = (projectId: string | null): UseProjectResult => {
   const pause = useCallback(async () => {
     if (!projectId) return;
     try {
-      await window.api.project.pause(projectId);
+      const api = getApi();
+      await api.project.pause(projectId);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to pause project'));
       throw err;
@@ -110,7 +138,8 @@ export const useProject = (projectId: string | null): UseProjectResult => {
   const stop = useCallback(async () => {
     if (!projectId) return;
     try {
-      await window.api.project.stop(projectId);
+      const api = getApi();
+      await api.project.stop(projectId);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to stop project'));
       throw err;
@@ -120,7 +149,8 @@ export const useProject = (projectId: string | null): UseProjectResult => {
   const deleteProject = useCallback(async () => {
     if (!projectId) return;
     try {
-      await window.api.project.delete(projectId);
+      const api = getApi();
+      await api.project.delete(projectId);
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to delete project'));
       throw err;
